@@ -1,0 +1,36 @@
+# The following characters are supported in EVM addresses
+symbols: "A B C D E F 0 1 2 3 4 5 6 7 8 9"
+case_sensitive: false
+
+symmetric:
+  - prefix: "AAAA"
+    suffix: "AAAA"
+    final: true
+  - prefix: "1111"
+    suffix: "1111"
+    final: false
+
+specific:
+  - prefix: "beef"
+    suffix: ""
+    final: false
+  - prefix: ""
+    suffix: "face"
+    final: true
+  - prefix: "0000"
+    suffix: ""
+    final: false
+  - prefix: ""
+    suffix: "0000"
+    final: false
+
+edges:
+  minCount: 6
+  side: "any"  # any | prefix | suffix
+  final: false
+
+regexp:
+  - pattern: "(?i)^0x([a-f0-9])\\1\\1\\1"
+    final: false
+  - pattern: "(?i)face.{0,30}beef"
+    final: true
