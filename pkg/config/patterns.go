@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -76,6 +77,33 @@ func validate(c *PatternsConfig) error {
 		case "any", "prefix", "suffix":
 		default:
 			return errors.New("edges.side must be one of: any, prefix, suffix")
+		}
+	}
+
+	for i, sp := range c.Symmetric {
+		if err := validateOnlyXY(sp.Prefix); err != nil {
+			return fmt.Errorf("symmetric[%d].prefix: %w", i, err)
+		}
+		if err := validateOnlyXY(sp.Suffix); err != nil {
+			return fmt.Errorf("symmetric[%d].suffix: %w", i, err)
+		}
+	}
+
+	if len(c.Symmetric) == 0 && len(c.Specific) == 0 && c.Edges.MinCount == 0 && len(c.Regexp) == 0 {
+		return errors.New("no patterns defined: symmetric, specific, edges, regexp are all empty")
+	}
+
+	return nil
+}
+
+func validateOnlyXY(s string) error {
+	if s == "" {
+		return errors.New("must be non-empty and contain only X/Y")
+	}
+	up := strings.ToUpper(s)
+	for i := 0; i < len(up); i++ {
+		if up[i] != 'X' && up[i] != 'Y' {
+			return errors.New("must contain only placeholders X or Y")
 		}
 	}
 	return nil

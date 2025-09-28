@@ -1,172 +1,146 @@
 package cli
 
 import (
-	"WalletTools/pkg/config"
-	"WalletTools/pkg/i18n"
 	"bufio"
+	"context"
 	"fmt"
 	"os"
-	"path/filepath"
+	"os/signal"
 	"strings"
+	"syscall"
 
-	"go.uber.org/zap"
+	"WalletTools/internal/generator"
+	"WalletTools/pkg/logx"
 )
 
-// Runner encapsulates CLI states and dependencies.
 type Runner struct {
-	Config        *config.PatternsConfig
-	in            *bufio.Reader
-	baseDir       string
-	fileLogger    *zap.SugaredLogger // detailed file logger for module (may be nil)
-	appFileLogger *zap.SugaredLogger // app.logs file logger (may be nil)
-	msgs          i18n.Messages
+	in                   *bufio.Reader
+	HideSecretsInConsole bool
 }
 
-// New creates a Runner. baseDir is used to search for configs/patterns.yaml by default.
-func New(cfg *config.PatternsConfig, baseDir string, msgs i18n.Messages, moduleFileLogger, moduleAppLogger *zap.SugaredLogger) *Runner {
-	return &Runner{
-		Config:        cfg,
-		in:            bufio.NewReader(os.Stdin),
-		baseDir:       baseDir,
-		fileLogger:    moduleFileLogger,
-		appFileLogger: moduleAppLogger,
-		msgs:          msgs,
-	}
+func NewRunner() *Runner {
+	return &Runner{in: bufio.NewReader(os.Stdin)}
 }
 
 func (r *Runner) prompt() string {
-	fmt.Print("> ")
-	s, _ := r.in.ReadString('\n')
-	return strings.TrimSpace(s)
+	text, _ := r.in.ReadString('\n')
+	return strings.TrimSpace(text)
 }
 
-func (r *Runner) showMenu() {
-	fmt.Println()
-	fmt.Println(r.msgs.MenuTitle)
-	fmt.Println(r.msgs.MenuGenPrivKeys)
-	fmt.Println(r.msgs.MenuGenMnemonics)
-	fmt.Println(r.msgs.MenuEncryptRaw)
-	fmt.Println(r.msgs.MenuDecryptKeystore)
-	fmt.Println(r.msgs.MenuShowPatterns)
-	fmt.Println(r.msgs.MenuExit)
-}
-
-func (r *Runner) logInfo(msg string, kv ...interface{}) {
-	zap.S().Infow(msg, kv...)
-	if r.appFileLogger != nil {
-		r.appFileLogger.Infow(msg, kv...)
-	}
-	if r.fileLogger != nil {
-		r.fileLogger.Infow(msg, kv...)
-	}
-}
-
-func (r *Runner) Run() error {
-	if r.Config == nil {
-		return fmt.Errorf("config is not loaded")
-	}
-
+func (r *Runner) Run() {
 	for {
-		r.showMenu()
-		choice := r.prompt()
+		fmt.Println()
+		fmt.Println("WalletTools — Vanity generator")
+		fmt.Println("1) Generate by Private Keys")
+		fmt.Println("2) Generate by Mnemonic")
+		fmt.Println("Press enter to exit")
+		fmt.Print("> ")
+		choice := strings.ToLower(r.prompt())
 		switch choice {
-		case "0":
-			r.logInfo(r.msgs.ExitSelected)
-			fmt.Println(r.msgs.ExitText)
-			return nil
 		case "1":
-			r.handleGenPrivKeys()
+			r.handleGenPriv()
 		case "2":
-			r.handleGenMnemonics()
-		case "3":
-			r.handleEncryptRaw()
-		case "4":
-			r.handleDecryptKeystore()
-		case "5":
-			r.showConfig()
+			r.handleGenMnemonic()
+		case "":
+			return
 		default:
-			fmt.Println(r.msgs.UnknownCommand, choice)
+			fmt.Println("Unknown choice")
 		}
 	}
 }
 
-func (r *Runner) handleGenPrivKeys() {
-	fmt.Println(r.msgs.GenPrivPrompt)
+func (r *Runner) handleGenPriv() {
+	fmt.Println("Encrypt to keystore? (y/n)")
 	yn := strings.ToLower(r.prompt())
 	encrypt := yn == "y" || yn == "yes"
-	r.logInfo(r.msgs.GenPrivStarted, "encrypt_keystore", encrypt, "case_sensitive", r.getCase())
-	fmt.Printf(r.msgs.GenPrivStub, encrypt)
+
+	var pwd string
+	var hint string
+	if encrypt {
+		fmt.Print("Keystore password: ")
+		pwd = r.prompt()
+		if pwd == "" {
+			fmt.Println("Empty password, encryption disabled.")
+			encrypt = false
+		} else {
+			fmt.Print("Optional password hint (will be saved to hint.txt, e.g. DSf...): ")
+			hint = r.prompt()
+		}
+	}
+
+	opt := generator.Options{
+		Source:           generator.SourcePrivKey,
+		Encrypt:          encrypt,
+		KeystorePassword: pwd,
+		LogsBase:         "logs",
+		PassHint:         hint,
+		PatternsPath:     "configs/patterns.yaml",
+		CaseMaskedOut:    r.HideSecretsInConsole,
+	}
+	ctx := withInterrupt(context.Background())
+	logx.S().Infow("start generation", "mode", "private", "encrypt", encrypt)
+	if err := generator.Run(ctx, opt); err != nil {
+		logx.S().Errorw("generation error", "err", err)
+	} else {
+		logx.S().Infow("generation done")
+	}
 }
 
-func (r *Runner) handleGenMnemonics() {
-	fmt.Println(r.msgs.GenMnemPrompt)
+func (r *Runner) handleGenMnemonic() {
+	fmt.Print("Use BIP-39 passphrase? (y/n): ")
 	yn := strings.ToLower(r.prompt())
 	usePP := yn == "y" || yn == "yes"
-	r.logInfo(r.msgs.GenMnemStarted, "use_passphrase", usePP, "case_sensitive", r.getCase())
-	fmt.Printf(r.msgs.GenMnemStub, usePP)
-}
 
-func (r *Runner) handleEncryptRaw() {
-	fmt.Println(r.msgs.EncryptPrompt)
-	p := r.prompt()
-	if p == "" {
-		fmt.Println(r.msgs.EncryptStdin)
-		return
+	var pass string
+	var hint string
+	if usePP {
+		fmt.Print("Enter BIP-39 passphrase: ")
+		pass = r.prompt()
+		fmt.Print("Optional passphrase hint (saved to folder): ")
+		hint = r.prompt()
 	}
-	path := filepath.Clean(p)
-	r.logInfo("encryptRaw requested", "path", path)
-	fmt.Printf(r.msgs.EncryptPlanned, path)
-}
 
-func (r *Runner) handleDecryptKeystore() {
-	fmt.Println(r.msgs.DecryptPrompt)
-	p := r.prompt()
-	if p == "" {
-		fmt.Println("Path is empty.")
-		return
-	}
-	path := filepath.Clean(p)
-	r.logInfo("decryptKeystore requested", "path", path)
-	fmt.Printf(r.msgs.DecryptPlanned, path)
-}
-
-func (r *Runner) showConfig() {
-	if r.Config == nil {
-		fmt.Println(r.msgs.ConfigNotLoaded)
-		return
-	}
-	fmt.Println(r.msgs.ConfigHeader)
-	fmt.Printf(r.msgs.ConfigSymbols, r.Config.Symbols)
-	fmt.Printf(r.msgs.ConfigCaseSensitive, r.Config.CaseSensitive)
-
-	if len(r.Config.Symmetric) > 0 {
-		fmt.Println(r.msgs.ConfigSymmetric)
-		for i, s := range r.Config.Symmetric {
-			fmt.Printf("  %d) prefix=%s suffix=%s final=%v\n", i+1, s.Prefix, s.Suffix, s.Final)
+	fmt.Print("Derive N addresses (default 5): ")
+	deriveStr := strings.TrimSpace(r.prompt())
+	deriveN := 5
+	if deriveStr != "" {
+		if n := atoiSafe(deriveStr); n > 0 {
+			deriveN = n
 		}
 	}
-	if len(r.Config.Specific) > 0 {
-		fmt.Println(r.msgs.ConfigSpecific)
-		for i, s := range r.Config.Specific {
-			fmt.Printf("  %d) prefix=%s suffix=%s final=%v\n", i+1, s.Prefix, s.Suffix, s.Final)
-		}
-	}
-	fmt.Printf(r.msgs.ConfigEdges, r.Config.Edges.MinCount, r.Config.Edges.Side, r.Config.Edges.Final)
 
-	if len(r.Config.Regexp) > 0 {
-		fmt.Println(r.msgs.ConfigRegexp)
-		for i, rr := range r.Config.Regexp {
-			fmt.Printf("  %d) pattern=%s final=%v\n", i+1, rr.Pattern, rr.Final)
-		}
+	opt := generator.Options{
+		Source:        generator.SourceMnemonic,
+		WordsStrength: 128,
+		DeriveN:       deriveN,
+		Passphrase:    pass,
+		LogsBase:      "logs",
+		PassHint:      hint,
+		PatternsPath:  "configs/patterns.yaml",
+		CaseMaskedOut: r.HideSecretsInConsole,
+	}
+	ctx := withInterrupt(context.Background())
+	logx.S().Infow("start generation", "mode", "mnemonic", "derive_n", deriveN, "use_passphrase", usePP)
+	if err := generator.Run(ctx, opt); err != nil {
+		logx.S().Errorw("generation error", "err", err)
+	} else {
+		logx.S().Infow("generation done")
 	}
 }
 
-func (r *Runner) getCase() string {
-	if r.Config == nil {
-		return "n/a"
-	}
-	if r.Config.CaseSensitive {
-		return "sensitive"
-	}
-	return "insensitive"
+func atoiSafe(s string) int {
+	var n int
+	_, _ = fmt.Sscan(s, &n)
+	return n
+}
+
+func withInterrupt(parent context.Context) context.Context {
+	ctx, cancel := context.WithCancel(parent)
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-ch
+		cancel()
+	}()
+	return ctx
 }

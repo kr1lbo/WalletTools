@@ -3,24 +3,18 @@ symbols: "A B C D E F 0 1 2 3 4 5 6 7 8 9"
 case_sensitive: false
 
 symmetric:
-  - prefix: "AAAA"
-    suffix: "AAAA"
+  - prefix: "XX"
+    suffix: "YY"
     final: true
-  - prefix: "1111"
-    suffix: "1111"
-    final: false
 
 specific:
   - prefix: "beef"
     suffix: ""
     final: false
-  - prefix: ""
-    suffix: "face"
-    final: true
   - prefix: "0000"
     suffix: ""
     final: false
-  - prefix: ""
+  - prefix: "0000"
     suffix: "0000"
     final: false
 
