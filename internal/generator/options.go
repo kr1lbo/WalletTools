@@ -20,4 +20,6 @@ type Options struct {
 	PassHint      string // hint.txt
 	PatternsPath  string // configs/patterns.yaml
 	CaseMaskedOut bool   // console masking (handled by logx/masking_core)
+
+	Workers int
 }

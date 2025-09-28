@@ -5,3 +5,8 @@ language: "ru"
 log_level: "info"
 
 hide_secrets_in_console: true
+
+# How many logical processors to use for generation.
+# MUST be less than the number of available logical CPUs on the computer.
+# 0 or no value — use all available ones.
+cores: 8

@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"WalletTools/internal/crypto"
@@ -21,6 +24,22 @@ type logPriv struct {
 	PrivateKey string `json:"private_key,omitempty"`
 	Keystore   string `json:"keystore,omitempty"`
 	Note       string `json:"note,omitempty"`
+}
+
+type foundEvent struct {
+	Kind       string
+	Address    string
+	PrivateHex string
+	KsJSON     []byte
+	Note       string
+	Elapsed    time.Duration
+	Attempt    uint64
+	Final      bool
+
+	Mnemonic string
+	Pass     string
+	Path     string
+	Index    int
 }
 
 func Run(ctx context.Context, opt Options) error {
@@ -49,228 +68,273 @@ func Run(ctx context.Context, opt Options) error {
 	}); err != nil {
 		return fmt.Errorf("logx init for module failed: %w", err)
 	}
-
 	app := logx.S()
+
+	// workers
+	workers := opt.Workers
+	runtime.GOMAXPROCS(workers)
+
 	app.Infow("generation started",
 		"module", module,
 		"keystoreUsage", keystoreUsage,
 		"patterns", opt.PatternsPath,
+		"workers", workers,
+		"GOMAXPROCS", workers,
 	)
 
 	start := time.Now()
 	showSecrets := !opt.CaseMaskedOut
 
-	switch opt.Source {
-	case SourcePrivKey:
-		return runPriv(ctx, dir, cfg, keystoreUsage, opt.KeystorePassword, start, showSecrets)
-	case SourceMnemonic:
-		return runMnemonic(ctx, dir, cfg, opt.WordsStrength, opt.Passphrase, opt.DeriveN, start, showSecrets)
-	default:
-		return fmt.Errorf("unknown source: %s", opt.Source)
-	}
-}
+	events := make(chan foundEvent, workers*4)
 
-// =============================== PRIVATE KEYS ===============================
-
-func runPriv(ctx context.Context, dir string, cfg *config.PatternsConfig, encrypt bool, ksPwd string, start time.Time, showSecrets bool) error {
-	log := logx.With("generator").With("mode", "priv")
-	app := logx.S()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	var attempts uint64
-	lastTick := time.Now()
-	const tickEvery = 4 * time.Second
 
-	progress := func(now time.Time) {
-		elapsed := now.Sub(start)
-		rate := 0.0
-		if elapsed > 0 {
-			rate = float64(attempts) / elapsed.Seconds()
+	var finalOnce sync.Once
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for ev := range events {
+			switch {
+			case opt.Source == SourcePrivKey && opt.Encrypt:
+				if err := appendJSONL(dir, ev.Kind, ev.KsJSON); err != nil {
+					logx.S().Errorw("jsonl append failed", "addr", ev.Address, "kind", ev.Kind, "err", err)
+				}
+			case opt.Source == SourcePrivKey && !opt.Encrypt:
+				rec := logPriv{Address: ev.Address, PrivateKey: ev.PrivateHex}
+				b, _ := json.Marshal(rec)
+				if err := appendJSONL(dir, ev.Kind, b); err != nil {
+					logx.S().Errorw("jsonl append failed", "addr", ev.Address, "kind", ev.Kind, "err", err)
+				}
+			case opt.Source == SourceMnemonic:
+				line := fmt.Sprintf(
+					"address=%s index=%d path=%s mnemonic=%q passphrase=%q priv=%s",
+					ev.Address, ev.Index, ev.Path, ev.Mnemonic, ev.Pass, ev.PrivateHex,
+				)
+				_ = logsink.WriteMatch(dir, ev.Kind, line, false)
+			}
+
+			if showSecrets {
+				if opt.Source == SourceMnemonic {
+					logx.S().Infow("FOUND",
+						"kind", ev.Kind,
+						"address", ev.Address,
+						"attempt", ev.Attempt,
+						"elapsed", humanDuration(ev.Elapsed),
+						"mnemonic", ev.Mnemonic,
+						"passphrase", ev.Pass,
+						"private_key", ev.PrivateHex,
+					)
+				} else {
+					logx.S().Infow("FOUND",
+						"kind", ev.Kind,
+						"address", ev.Address,
+						"attempt", ev.Attempt,
+						"elapsed", humanDuration(ev.Elapsed),
+						"private_key", ev.PrivateHex,
+					)
+				}
+			} else {
+				logx.S().Infow("FOUND",
+					"kind", ev.Kind,
+					"address", ev.Address,
+					"attempt", ev.Attempt,
+					"elapsed", humanDuration(ev.Elapsed),
+				)
+			}
+
+			if ev.Final {
+				finalOnce.Do(func() {
+					logx.S().Infow("final reached, stop all workers")
+					cancel()
+				})
+			}
 		}
-		app.Infow("progress",
-			"attempts", attempts,
-			"rate_addr_per_sec", fmt.Sprintf("%.2f", rate),
-			"elapsed", humanDuration(elapsed),
-		)
+	}()
+
+	statusDone := make(chan struct{})
+	go func() {
+		defer close(statusDone)
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				elapsed := now.Sub(start)
+				rate := 0.0
+				n := atomic.LoadUint64(&attempts)
+				if elapsed > 0 {
+					rate = float64(n) / elapsed.Seconds()
+				}
+				logx.S().Infow("progress",
+					"attempts", n,
+					"rate_addr_per_sec", fmt.Sprintf("%.2f", rate),
+					"elapsed", humanDuration(elapsed),
+				)
+			}
+		}
+	}()
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	switch opt.Source {
+	case SourcePrivKey:
+		for i := 0; i < workers; i++ {
+			go func() {
+				defer wg.Done()
+				workerPriv(ctx, cfg, opt.Encrypt, opt.KeystorePassword, start, &attempts, events)
+			}()
+		}
+	case SourceMnemonic:
+		for i := 0; i < workers; i++ {
+			go func() {
+				defer wg.Done()
+				workerMnemonic(ctx, cfg, opt.WordsStrength, opt.Passphrase, opt.DeriveN, start, &attempts, events)
+			}()
+		}
+	default:
+		cancel()
+		wg.Done()
+		return fmt.Errorf("unknown source: %s", opt.Source)
 	}
 
+	wg.Wait()
+	close(events)
+	<-writerDone
+	<-statusDone
+
+	logx.S().Infow("stopped",
+		"elapsed", humanDuration(time.Since(start)),
+		"attempts", atomic.LoadUint64(&attempts),
+	)
+	return ctx.Err()
+}
+
+// =============================== WORKERS ===============================
+
+func workerPriv(
+	ctx context.Context,
+	cfg *config.PatternsConfig,
+	encrypt bool,
+	ksPwd string,
+	start time.Time,
+	attempts *uint64,
+	out chan<- foundEvent,
+) {
 	for {
 		select {
 		case <-ctx.Done():
-			app.Infow("stopped",
-				"elapsed", humanDuration(time.Since(start)),
-				"attempts", attempts,
-				"reason", "context canceled",
-			)
-			return ctx.Err()
+			return
 		default:
 		}
 
 		priv, err := crypto.NewPrivKey()
-		attempts++
+		n := atomic.AddUint64(attempts, 1)
 		if err != nil {
-			log.Errorw("generate priv failed", "err", err)
+			logx.S().Errorw("generate priv failed", "err", err)
 			continue
 		}
 		addr := crypto.AddressHex(priv)
-
-		now := time.Now()
-		if now.Sub(lastTick) >= tickEvery {
-			progress(now)
-			lastTick = now
-		}
 
 		mr := patterns.MatchAddress(cfg, addr)
 		if mr == nil {
 			continue
 		}
 
+		ev := foundEvent{
+			Kind:    mr.Kind,
+			Address: addr,
+			Elapsed: time.Since(start),
+			Attempt: n,
+			Final:   mr.Final,
+		}
+
 		if encrypt {
 			blob, err := crypto.KeystoreJSON(priv, ksPwd)
 			if err != nil {
-				log.Errorw("keystore encrypt failed", "addr", addr, "err", err)
+				logx.S().Errorw("keystore encrypt failed", "addr", addr, "err", err)
 				continue
 			}
-			if err := appendJSONL(dir, mr.Kind, blob); err != nil {
-				log.Errorw("jsonl append failed", "addr", addr, "kind", mr.Kind, "err", err)
-			}
+			ev.KsJSON = blob
 		} else {
-			rec := logPriv{
-				Address:    addr,
-				PrivateKey: crypto.PrivToHex(priv),
-			}
-			b, _ := json.Marshal(rec)
-			if err := appendJSONL(dir, mr.Kind, b); err != nil {
-				log.Errorw("jsonl append failed", "addr", addr, "kind", mr.Kind, "err", err)
-			}
+			ev.PrivateHex = crypto.PrivToHex(priv)
 		}
 
-		elapsed := time.Since(start)
-		if !encrypt && showSecrets {
-			app.Infow("FOUND",
-				"kind", mr.Kind,
-				"address", addr,
-				"attempt", attempts,
-				"elapsed", humanDuration(elapsed),
-				"private_key", crypto.PrivToHex(priv),
-			)
-		} else {
-			app.Infow("FOUND",
-				"kind", mr.Kind,
-				"address", addr,
-				"attempt", attempts,
-				"elapsed", humanDuration(elapsed),
-			)
-		}
-
-		if mr.Final {
-			app.Infow("final reached, stop")
-			return nil
+		select {
+		case <-ctx.Done():
+			return
+		case out <- ev:
 		}
 	}
 }
 
-// ================================ MNEMONICS =================================
-
-func runMnemonic(ctx context.Context, dir string, cfg *config.PatternsConfig, strength int, pass string, deriveN int, start time.Time, showSecrets bool) error {
-	log := logx.With("generator").With("mode", "mnemonic")
-	app := logx.S()
-
-	var attempts uint64
-	lastTick := time.Now()
-	const tickEvery = 4 * time.Second
-
-	progress := func(now time.Time) {
-		elapsed := now.Sub(start)
-		rate := 0.0
-		if elapsed > 0 {
-			rate = float64(attempts) / elapsed.Seconds()
-		}
-		app.Infow("progress",
-			"attempts", attempts,
-			"rate_addr_per_sec", fmt.Sprintf("%.2f", rate),
-			"elapsed", humanDuration(elapsed),
-		)
-	}
-
+func workerMnemonic(
+	ctx context.Context,
+	cfg *config.PatternsConfig,
+	strength int,
+	pass string,
+	deriveN int,
+	start time.Time,
+	attempts *uint64,
+	out chan<- foundEvent,
+) {
 	for {
 		select {
 		case <-ctx.Done():
-			app.Infow("stopped",
-				"elapsed", humanDuration(time.Since(start)),
-				"attempts", attempts,
-				"reason", "context canceled",
-			)
-			return ctx.Err()
+			return
 		default:
 		}
 
 		mn, err := mnemonic.NewMnemonic(strength)
 		if err != nil {
-			log.Errorw("mnemonic generate failed", "err", err)
+			logx.S().Errorw("mnemonic generate failed", "err", err)
 			continue
 		}
 		derived, err := mnemonic.Derive(mn, pass, deriveN)
 		if err != nil {
-			log.Errorw("mnemonic derive failed", "err", err)
+			logx.S().Errorw("mnemonic derive failed", "err", err)
 			continue
 		}
 
 		for _, d := range derived {
 			select {
 			case <-ctx.Done():
-				app.Infow("stopped",
-					"elapsed", humanDuration(time.Since(start)),
-					"attempts", attempts,
-					"reason", "context canceled",
-				)
-				return ctx.Err()
+				return
 			default:
 			}
 
-			attempts++
+			n := atomic.AddUint64(attempts, 1)
 			addr := d.Address
-
-			now := time.Now()
-			if now.Sub(lastTick) >= tickEvery {
-				progress(now)
-				lastTick = now
-			}
-
 			mr := patterns.MatchAddress(cfg, addr)
 			if mr == nil {
 				continue
 			}
 
-			line := fmt.Sprintf(
-				"address=%s index=%d path=%s mnemonic=%q passphrase=%q priv=%s",
-				addr, d.Index, d.Path, d.Mnemonic, pass, crypto.PrivToHex(d.Priv),
-			)
-			_ = logsink.WriteMatch(dir, mr.Kind, line, false)
+			ev := foundEvent{
+				Kind:       mr.Kind,
+				Address:    addr,
+				PrivateHex: crypto.PrivToHex(d.Priv),
+				Mnemonic:   d.Mnemonic,
+				Pass:       pass,
+				Path:       d.Path,
+				Index:      d.Index,
+				Elapsed:    time.Since(start),
+				Attempt:    n,
+				Final:      mr.Final,
+			}
 
-			elapsed := time.Since(start)
-
-			if showSecrets {
-				app.Infow("FOUND",
-					"kind", mr.Kind,
-					"address", addr,
-					"attempt", attempts,
-					"elapsed", humanDuration(elapsed),
-					"mnemonic", d.Mnemonic,
-					"passphrase", pass,
-					"private_key", crypto.PrivToHex(d.Priv),
-				)
-			} else {
-				app.Infow("FOUND",
-					"kind", mr.Kind,
-					"address", addr,
-					"attempt", attempts,
-					"elapsed", humanDuration(elapsed),
-				)
+			select {
+			case <-ctx.Done():
+				return
+			case out <- ev:
 			}
 
 			if mr.Final {
-				app.Infow("final reached, stop")
-				return nil
+				return
 			}
 		}
 	}

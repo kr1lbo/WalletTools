@@ -16,6 +16,7 @@ import (
 type Runner struct {
 	in                   *bufio.Reader
 	HideSecretsInConsole bool
+	Workers              int
 }
 
 func NewRunner() *Runner {
@@ -76,6 +77,7 @@ func (r *Runner) handleGenPriv() {
 		PassHint:         hint,
 		PatternsPath:     "configs/patterns.yaml",
 		CaseMaskedOut:    r.HideSecretsInConsole,
+		Workers:          r.Workers,
 	}
 	ctx := withInterrupt(context.Background())
 	logx.S().Infow("start generation", "mode", "private", "encrypt", encrypt)
@@ -118,6 +120,7 @@ func (r *Runner) handleGenMnemonic() {
 		PassHint:      hint,
 		PatternsPath:  "configs/patterns.yaml",
 		CaseMaskedOut: r.HideSecretsInConsole,
+		Workers:       r.Workers,
 	}
 	ctx := withInterrupt(context.Background())
 	logx.S().Infow("start generation", "mode", "mnemonic", "derive_n", deriveN, "use_passphrase", usePP)

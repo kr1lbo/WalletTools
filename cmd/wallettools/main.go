@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"WalletTools/internal/cli"
 	"WalletTools/pkg/appcfg"
@@ -33,6 +34,14 @@ func main() {
 		os.Exit(1)
 	}
 	defer logx.Close()
+	workers := appConf.Cores
+	maxCPU := runtime.NumCPU()
+	logx.S().Info("MaxCpuNum: ", maxCPU)
+	if workers <= 0 {
+		workers = maxCPU
+	} else if workers > maxCPU {
+		workers = maxCPU
+	}
 
 	logx.S().Infow("wallettools started",
 		"cwd", cwd,
@@ -43,5 +52,6 @@ func main() {
 
 	r := cli.NewRunner()
 	r.HideSecretsInConsole = appConf.HideSecretsInConsole
+	r.Workers = workers
 	r.Run()
 }

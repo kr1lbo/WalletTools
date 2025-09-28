@@ -11,6 +11,7 @@ type Config struct {
 	Language             string `yaml:"language"`  // "ru" | "en"
 	LogLevel             string `yaml:"log_level"` // "debug"|"info"|"warn"|"error"
 	HideSecretsInConsole bool   `yaml:"hide_secrets_in_console"`
+	Cores                int    `yaml:"cores"`
 }
 
 func Load(path string) (*Config, error) {
