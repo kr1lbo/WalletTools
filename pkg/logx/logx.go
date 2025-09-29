@@ -89,7 +89,7 @@ func Init(cfg Config) error {
 	core := zapcore.NewTee(cores...)
 	logger := zap.New(core,
 		zap.AddCaller(),
-		zap.AddStacktrace(zapcore.ErrorLevel),
+		zap.AddStacktrace(zapcore.PanicLevel),
 	)
 	zap.ReplaceGlobals(logger)
 

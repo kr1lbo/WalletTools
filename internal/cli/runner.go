@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"WalletTools/internal/ops/encdec"
 	"bufio"
 	"context"
 	"fmt"
@@ -34,6 +35,8 @@ func (r *Runner) Run() {
 		fmt.Println("WalletTools — Vanity generator")
 		fmt.Println("1) Generate by Private Keys")
 		fmt.Println("2) Generate by Mnemonic")
+		fmt.Println("3) Encrypt raw → keystore")
+		fmt.Println("4) Decrypt keystore → raw")
 		fmt.Println("Press enter to exit")
 		fmt.Print("> ")
 		choice := strings.ToLower(r.prompt())
@@ -42,6 +45,10 @@ func (r *Runner) Run() {
 			r.handleGenPriv()
 		case "2":
 			r.handleGenMnemonic()
+		case "3":
+			r.handleEncrypt()
+		case "4":
+			r.handleDecrypt()
 		case "":
 			return
 		default:
@@ -129,6 +136,27 @@ func (r *Runner) handleGenMnemonic() {
 	} else {
 		logx.S().Infow("generation done")
 	}
+}
+
+func (r *Runner) handleEncrypt() {
+	fmt.Print("Keystore password: ")
+	pwd := strings.TrimSpace(r.prompt())
+	fmt.Print("Optional hint: ")
+	hint := strings.TrimSpace(r.prompt())
+	_ = encdec.EncryptPrivates(withInterrupt(context.Background()), encdec.EncryptOptions{
+		InputsBaseDir: "inputs", LogsBase: "logs",
+		Password: pwd, PassHint: hint,
+		HideSecretsInConsole: r.HideSecretsInConsole,
+	})
+}
+
+func (r *Runner) handleDecrypt() {
+	fmt.Print("Keystore password: ")
+	pwd := strings.TrimSpace(r.prompt())
+	_ = encdec.DecryptKeystores(withInterrupt(context.Background()), encdec.DecryptOptions{
+		InputsBaseDir: "inputs", LogsBase: "logs",
+		Password: pwd, HideSecretsInConsole: r.HideSecretsInConsole,
+	})
 }
 
 func atoiSafe(s string) int {
