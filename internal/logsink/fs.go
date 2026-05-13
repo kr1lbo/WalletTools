@@ -18,7 +18,7 @@ func MakeModuleDirs(base, module string, keystore bool) (string, error) {
 	}
 
 	dir := filepath.Join(base, module, date, name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("mkdir %q: %w", dir, err)
 	}
 	return dir, nil

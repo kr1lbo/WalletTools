@@ -46,6 +46,10 @@ type DecryptOptions struct {
 func EncryptPrivates(ctx context.Context, opt EncryptOptions) error {
 	const module = "encrypt"
 
+	if opt.Password == "" {
+		return errors.New("keystore password must not be empty")
+	}
+
 	dir, err := logsink.MakeModuleDirs(opt.LogsBase, module, true)
 	if err != nil {
 		return err
@@ -68,7 +72,7 @@ func EncryptPrivates(ctx context.Context, opt EncryptOptions) error {
 	defer f.Close()
 
 	filesDir := filepath.Join(dir, "files")
-	if err := os.MkdirAll(filesDir, 0o755); err != nil {
+	if err := os.MkdirAll(filesDir, 0o700); err != nil {
 		return fmt.Errorf("mkdir files: %w", err)
 	}
 
@@ -159,6 +163,10 @@ func EncryptPrivates(ctx context.Context, opt EncryptOptions) error {
 func DecryptKeystores(ctx context.Context, opt DecryptOptions) error {
 	const module = "decrypt"
 
+	if opt.Password == "" {
+		return errors.New("keystore password must not be empty")
+	}
+
 	dir, err := logsink.MakeModuleDirs(opt.LogsBase, module, true)
 	if err != nil {
 		return err
@@ -173,7 +181,7 @@ func DecryptKeystores(ctx context.Context, opt DecryptOptions) error {
 	inDir := filepath.Join(opt.InputsBaseDir, "decrypt")
 	outAll := filepath.Join(dir, "all.txt")
 
-	outF, err := os.Create(outAll)
+	outF, err := os.OpenFile(outAll, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("create all.txt: %w", err)
 	}
@@ -222,7 +230,12 @@ func DecryptKeystores(ctx context.Context, opt DecryptOptions) error {
 					continue
 				}
 				okCnt++
-				_ = writeLine(addr, privHex)
+				if werr := writeLine(addr, privHex); werr != nil {
+					failCnt++
+					okCnt--
+					app.Errorw("write decrypted key failed", "file", p, "err", werr)
+					continue
+				}
 				if !opt.HideSecretsInConsole {
 					app.Infow("DECRYPTED", "address", addr, "private_key", privHex)
 				} else {
@@ -249,7 +262,12 @@ func DecryptKeystores(ctx context.Context, opt DecryptOptions) error {
 			continue
 		}
 		okCnt++
-		_ = writeLine(addr, privHex)
+		if werr := writeLine(addr, privHex); werr != nil {
+			failCnt++
+			okCnt--
+			app.Errorw("write decrypted key failed", "file", p, "err", werr)
+			continue
+		}
 		if !opt.HideSecretsInConsole {
 			app.Infow("DECRYPTED", "address", addr, "private_key", privHex)
 		} else {

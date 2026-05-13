@@ -13,6 +13,7 @@ dist/
 
 # Go coverage
 *.out
+.gocache/
 
 # IDE/Editor settings
 .vscode/

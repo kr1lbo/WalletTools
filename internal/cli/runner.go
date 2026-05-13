@@ -3,9 +3,9 @@ package cli
 import (
 	"WalletTools/internal/generator"
 	"WalletTools/internal/ops/encdec"
-	"WalletTools/pkg/logx"
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -148,12 +148,16 @@ func (r *Runner) handleGenPriv() {
 		CaseMaskedOut:    r.HideSecretsInConsole,
 		Workers:          r.Workers,
 	}
-	ctx := withInterrupt(context.Background())
-	logx.S().Infow("start generation", "mode", "private", "encrypt", encrypt)
+	ctx, stop := withInterrupt(context.Background())
+	defer stop()
 	if err := generator.Run(ctx, opt); err != nil {
-		logx.S().Errorw("generation error", "err", err)
+		if errors.Is(err, context.Canceled) {
+			fmt.Println("Generation stopped.")
+		} else {
+			fmt.Println("Generation error:", err)
+		}
 	} else {
-		logx.S().Infow("generation done")
+		fmt.Println("Generation done.")
 	}
 }
 
@@ -208,13 +212,17 @@ func (r *Runner) handleGenMnemonic() {
 		Workers:       r.Workers,
 	}
 
-	ctx := withInterrupt(context.Background())
+	ctx, stop := withInterrupt(context.Background())
+	defer stop()
 
-	logx.S().Infow("start generation", "mode", "mnemonic", "derive_n", deriveN, "use_passphrase", usePP)
 	if err := generator.Run(ctx, opt); err != nil {
-		logx.S().Errorw("generation error", "err", err)
+		if errors.Is(err, context.Canceled) {
+			fmt.Println("Generation stopped.")
+		} else {
+			fmt.Println("Generation error:", err)
+		}
 	} else {
-		logx.S().Infow("generation done")
+		fmt.Println("Generation done.")
 	}
 
 	passStr = ""
@@ -238,8 +246,11 @@ func (r *Runner) handleEncrypt() {
 	fmt.Print("Optional hint: ")
 	hint := strings.TrimSpace(r.prompt())
 
-	_ = encdec.EncryptPrivates(
-		withInterrupt(context.Background()),
+	ctx, stop := withInterrupt(context.Background())
+	defer stop()
+
+	if err := encdec.EncryptPrivates(
+		ctx,
 		encdec.EncryptOptions{
 			InputsBaseDir:        "inputs",
 			LogsBase:             "logs",
@@ -247,7 +258,9 @@ func (r *Runner) handleEncrypt() {
 			PassHint:             hint,
 			HideSecretsInConsole: r.HideSecretsInConsole,
 		},
-	)
+	); err != nil {
+		fmt.Println("Encryption error:", err)
+	}
 }
 
 // handleDecrypt — decryption keystore → raw. An empty password is prohibited.
@@ -257,15 +270,20 @@ func (r *Runner) handleDecrypt() {
 		fmt.Println("Error:", err)
 		return
 	}
-	_ = encdec.DecryptKeystores(
-		withInterrupt(context.Background()),
+	ctx, stop := withInterrupt(context.Background())
+	defer stop()
+
+	if err := encdec.DecryptKeystores(
+		ctx,
 		encdec.DecryptOptions{
 			InputsBaseDir:        "inputs",
 			LogsBase:             "logs",
 			Password:             pwd,
 			HideSecretsInConsole: r.HideSecretsInConsole,
 		},
-	)
+	); err != nil {
+		fmt.Println("Decryption error:", err)
+	}
 }
 
 func atoiSafe(s string) int {
@@ -274,13 +292,6 @@ func atoiSafe(s string) int {
 	return n
 }
 
-func withInterrupt(parent context.Context) context.Context {
-	ctx, cancel := context.WithCancel(parent)
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-ch
-		cancel()
-	}()
-	return ctx
+func withInterrupt(parent context.Context) (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
 }

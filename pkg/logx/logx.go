@@ -75,10 +75,10 @@ func Init(cfg Config) error {
 	// file core: if requested and not console-only
 	if cfg.FilePath != "" && !cfg.ConsoleOnly {
 		resolved := resolvePath(cfg.FilePath)
-		if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(resolved), 0o700); err != nil {
 			return fmt.Errorf("create logs dir: %w", err)
 		}
-		f, err := os.OpenFile(resolved, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		f, err := os.OpenFile(resolved, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
 			return fmt.Errorf("open log file: %w", err)
 		}

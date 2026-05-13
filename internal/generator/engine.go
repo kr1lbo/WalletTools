@@ -43,6 +43,10 @@ type foundEvent struct {
 }
 
 func Run(ctx context.Context, opt Options) error {
+	if opt.Source != SourcePrivKey && opt.Source != SourceMnemonic {
+		return fmt.Errorf("unknown source: %s", opt.Source)
+	}
+
 	cfg, err := config.Load(opt.PatternsPath)
 	if err != nil {
 		return fmt.Errorf("load patterns: %w", err)
@@ -68,10 +72,17 @@ func Run(ctx context.Context, opt Options) error {
 	}); err != nil {
 		return fmt.Errorf("logx init for module failed: %w", err)
 	}
+	defer logx.Close()
 	app := logx.S()
 
 	// workers
 	workers := opt.Workers
+	maxCPU := runtime.NumCPU()
+	if workers <= 0 {
+		workers = maxCPU
+	} else if workers > maxCPU {
+		workers = maxCPU
+	}
 	runtime.GOMAXPROCS(workers)
 
 	app.Infow("generation started",
@@ -91,6 +102,7 @@ func Run(ctx context.Context, opt Options) error {
 	defer cancel()
 
 	var attempts uint64
+	var stoppedByFinal atomic.Bool
 
 	var finalOnce sync.Once
 	writerDone := make(chan struct{})
@@ -147,6 +159,7 @@ func Run(ctx context.Context, opt Options) error {
 
 			if ev.Final {
 				finalOnce.Do(func() {
+					stoppedByFinal.Store(true)
 					logx.S().Infow("final reached, stop all workers")
 					cancel()
 				})
@@ -196,10 +209,6 @@ func Run(ctx context.Context, opt Options) error {
 				workerMnemonic(ctx, cfg, opt.WordsStrength, opt.Passphrase, opt.DeriveN, start, &attempts, events)
 			}()
 		}
-	default:
-		cancel()
-		wg.Done()
-		return fmt.Errorf("unknown source: %s", opt.Source)
 	}
 
 	wg.Wait()
@@ -211,6 +220,9 @@ func Run(ctx context.Context, opt Options) error {
 		"elapsed", humanDuration(time.Since(start)),
 		"attempts", atomic.LoadUint64(&attempts),
 	)
+	if stoppedByFinal.Load() {
+		return nil
+	}
 	return ctx.Err()
 }
 

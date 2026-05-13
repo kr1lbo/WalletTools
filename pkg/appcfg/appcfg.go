@@ -14,6 +14,14 @@ type Config struct {
 	Cores                int    `yaml:"cores"`
 }
 
+type rawConfig struct {
+	Language             string `yaml:"language"`
+	LogLevel             string `yaml:"log_level"`
+	HideSecretsInConsole *bool  `yaml:"hide_secrets_in_console"`
+	LegacyHideSecrets    *bool  `yaml:"hide_secrets"`
+	Cores                int    `yaml:"cores"`
+}
+
 func Load(path string) (*Config, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -21,9 +29,20 @@ func Load(path string) (*Config, error) {
 	}
 	defer f.Close()
 
-	var c Config
-	if err := yaml.NewDecoder(f).Decode(&c); err != nil {
+	var raw rawConfig
+	if err := yaml.NewDecoder(f).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("decode app yaml %q: %w", path, err)
+	}
+
+	c := Config{
+		Language: raw.Language,
+		LogLevel: raw.LogLevel,
+		Cores:    raw.Cores,
+	}
+	if raw.HideSecretsInConsole != nil {
+		c.HideSecretsInConsole = *raw.HideSecretsInConsole
+	} else if raw.LegacyHideSecrets != nil {
+		c.HideSecretsInConsole = *raw.LegacyHideSecrets
 	}
 
 	// defaults

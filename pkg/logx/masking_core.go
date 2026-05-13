@@ -33,6 +33,15 @@ func (m *maskingCore) cloneFieldsWithRedaction(fields []zapcore.Field) []zapcore
 	return out
 }
 
+func (m *maskingCore) With(fields []zapcore.Field) zapcore.Core {
+	return &maskingCore{
+		Core:         m.Core.With(m.cloneFieldsWithRedaction(fields)),
+		sensitive:    m.sensitive,
+		maskPattern:  m.maskPattern,
+		replaceValue: m.replaceValue,
+	}
+}
+
 func (m *maskingCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 	// mask message text
 	if m.maskPattern != nil && entry.Message != "" {
@@ -47,6 +56,7 @@ func defaultSensitiveKeys() map[string]struct{} {
 	keys := []string{
 		"private", "private_key", "privatekey",
 		"priv", "secret", "mnemonic", "seed", "passphrase",
+		"password", "pwd", "pass", "keystore_password",
 		"raw", "raw_key", "raw_private", "key",
 	}
 	m := make(map[string]struct{}, len(keys))
@@ -57,7 +67,8 @@ func defaultSensitiveKeys() map[string]struct{} {
 }
 
 func defaultMaskPattern() *regexp.Regexp {
-	// match 64 hex (likely raw private key) or 0x followed by 40 hex (address)
-	pattern := `(?i)(0x[a-f0-9]{40}|[a-f0-9]{64})`
+	// Match raw EVM private keys. The 0x-prefixed form must be checked before
+	// shorter hex-like values so message masking never leaves the tail visible.
+	pattern := `(?i)(0x[a-f0-9]{64}|\b[a-f0-9]{64}\b)`
 	return regexp.MustCompile(pattern)
 }

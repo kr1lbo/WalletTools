@@ -81,10 +81,10 @@ func validate(c *PatternsConfig) error {
 	}
 
 	for i, sp := range c.Symmetric {
-		if err := validateOnlyXY(sp.Prefix); err != nil {
+		if err := validateSymmetricPart(sp.Prefix); err != nil {
 			return fmt.Errorf("symmetric[%d].prefix: %w", i, err)
 		}
-		if err := validateOnlyXY(sp.Suffix); err != nil {
+		if err := validateSymmetricPart(sp.Suffix); err != nil {
 			return fmt.Errorf("symmetric[%d].suffix: %w", i, err)
 		}
 	}
@@ -96,15 +96,29 @@ func validate(c *PatternsConfig) error {
 	return nil
 }
 
-func validateOnlyXY(s string) error {
+func validateSymmetricPart(s string) error {
 	if s == "" {
-		return errors.New("must be non-empty and contain only X/Y")
+		return errors.New("must be non-empty")
 	}
 	up := strings.ToUpper(s)
+	onlyPlaceholders := true
 	for i := 0; i < len(up); i++ {
 		if up[i] != 'X' && up[i] != 'Y' {
-			return errors.New("must contain only placeholders X or Y")
+			onlyPlaceholders = false
+			break
+		}
+	}
+	if onlyPlaceholders {
+		return nil
+	}
+	for i := 0; i < len(up); i++ {
+		if !isHexAddressByte(up[i]) {
+			return errors.New("must contain only hex address characters or placeholders X/Y")
 		}
 	}
 	return nil
+}
+
+func isHexAddressByte(b byte) bool {
+	return (b >= '0' && b <= '9') || (b >= 'A' && b <= 'F')
 }

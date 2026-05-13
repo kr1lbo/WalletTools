@@ -1,270 +1,328 @@
 # WalletTools
 
-Инструмент для генерации кастомных EVM-кошельков (vanity addresses) с использованием паттернов, а также шифрования/дешифрования приватных ключей в формате keystore.
+WalletTools - консольный инструмент для генерации красивых EVM-кошельков (vanity addresses), а также для шифрования и дешифрования приватных ключей в формате Ethereum keystore.
 
-## Возможности
+Проект умеет:
 
-- **Генерация по приватным ключам**: Создание случайных приватных ключей с поиском адресов по заданным паттернам
-- **Генерация по мнемоникам**: Генерация BIP-39 мнемоник с опциональной passphrase и деривацией нескольких адресов
-- **Шифрование**: Преобразование приватных ключей в защищенные keystore-файлы
-- **Дешифрование**: Извлечение приватных ключей из keystore-файлов
-- **Многопоточность**: Настраиваемое количество воркеров для ускорения генерации
-- **Паттерны**: Поддержка симметричных префиксов/суффиксов, специфичных строк, регулярных выражений
-- **Безопасность**: Скрытие секретных данных в логах (опционально)
+- генерировать EVM-адреса из случайных приватных ключей и искать совпадения по паттернам;
+- генерировать BIP-39 мнемоники с опциональной passphrase и деривировать несколько Ethereum-адресов;
+- шифровать raw private keys в keystore-файлы;
+- дешифровывать keystore-файлы обратно в raw private keys;
+- скрывать секреты в консольном выводе при включенной настройке `hide_secrets_in_console`.
+
+## Важная идея безопасности
+
+Для мнемоник можно использовать BIP-39 passphrase. В интерфейсе это удобно воспринимать как "13-е слово", но технически это отдельная passphrase, которая участвует в получении seed. Без нее та же мнемоника даст другие адреса.
+
+Для приватных ключей используется Ethereum keystore: приватный ключ шифруется паролем и сохраняется в JSON-файл. Без пароля такой файл нельзя использовать для получения приватного ключа.
 
 ## Установка
 
 ### Требования
 
 - Go 1.24.0 или выше
-- Windows/Linux/macOS
+- Windows, Linux или macOS
 
 ### Сборка
 
-  ```bash
-  git clone <repository-url>
-  cd WalletTools
-  go mod download
-  go build -o wallettools.exe ./cmd/wallettools
+```bash
+git clone <repository-url>
+cd WalletTools
+go mod download
+go build -o wallettools.exe ./cmd/wallettools
+```
 
-  Конфигурация
+Если Go ругается на VCS status из-за прав владельца репозитория, можно собрать без VCS stamping:
 
-  configs/app.yaml
+```bash
+go build -buildvcs=false -o wallettools.exe ./cmd/wallettools
+```
 
-  Основные настройки приложения:
+## Конфигурация
 
-  # Язык интерфейса: "ru" или "en"                                                                                                                                                                                                   
-  language: "ru"                                                                                                                                                                                                                     
+### `configs/app.yaml`
 
-  # Уровень логирования: debug | info | warn | error                                                                                                                                                                                 
-  log_level: "info"                                                                                                                                                                                                                  
+```yaml
+# Interface language: "ru" or "en"
+language: "ru"
 
-  # Скрывать секретные данные в логах консоли                                                                                                                                                                                        
-  hide_secrets: false                                                                                                                                                                                                                
+# Logger level: debug | info | warn | error
+log_level: "info"
 
-  # Количество логических процессоров для генерации                                                                                                                                                                                  
-  # 0 или не указано — использовать все доступные                                                                                                                                                                                    
-  cores: 8                                                                                                                                                                                                                           
+# Hide private keys, mnemonics and passwords in console logs
+hide_secrets_in_console: true
 
-  configs/patterns.yaml
+# How many logical processors to use for generation.
+# 0 or no value - use all available ones.
+cores: 8
+```
 
-  Паттерны для поиска адресов:
+`hide_secrets_in_console: true` маскирует секреты только в консоли. Файловые результаты в `logs/` намеренно содержат найденные приватные ключи, мнемоники или расшифрованные ключи, если выбран соответствующий режим.
 
-  # Поддерживаемые символы в EVM-адресах                                                                                                                                                                                             
-  symbols: "A B C D E F 0 1 2 3 4 5 6 7 8 9"                                                                                                                                                                                         
-  case_sensitive: false                                                                                                                                                                                                              
+Старый ключ `hide_secrets` также поддерживается для совместимости, но новый ключ - `hide_secrets_in_console`.
 
-  # Симметричные паттерны (префикс = суффикс в обратном порядке)                                                                                                                                                                     
-  symmetric:                                                                                                                                                                                                                         
-    - prefix: "XX"                                                                                                                                                                                                                   
-      suffix: "YY"                                                                                                                                                                                                                   
-      final: true  # остановить генерацию после первого найденного                                                                                                                                                                   
+### `configs/patterns.yaml`
 
-  # Специфичные паттерны                                                                                                                                                                                                             
-  specific:                                                                                                                                                                                                                          
-    - prefix: "beef"                                                                                                                                                                                                                 
-      suffix: ""                                                                                                                                                                                                                     
-      final: false                                                                                                                                                                                                                   
-    - prefix: "0000"                                                                                                                                                                                                                 
-      suffix: "0000"                                                                                                                                                                                                                 
-      final: false                                                                                                                                                                                                                   
+```yaml
+symbols: "A B C D E F 0 1 2 3 4 5 6 7 8 9"
+case_sensitive: false
 
-  # Граничные символы (повторяющиеся в начале/конце)                                                                                                                                                                                 
-  edges:                                                                                                                                                                                                                             
-    minCount: 3                                                                                                                                                                                                                      
-    side: "any"  # any | prefix | suffix                                                                                                                                                                                             
-    final: false                                                                                                                                                                                                                     
+symmetric:
+  - prefix: "XX"
+    suffix: "YY"
+    final: true
 
-  # Регулярные выражения                                                                                                                                                                                                             
-  regexp:                                                                                                                                                                                                                            
-    - pattern: "(?i)^0x([a-f0-9])\\1\\1\\1"  # 4 одинаковых символа после 0x                                                                                                                                                         
-      final: false                                                                                                                                                                                                                   
-    - pattern: "(?i)face.{0,30}beef"  # FACE...BEEF                                                                                                                                                                                  
-      final: true                                                                                                                                                                                                                    
+specific:
+  - prefix: "beef"
+    suffix: ""
+    final: false
+  - prefix: "0000"
+    suffix: ""
+    final: false
+  - prefix: "0000"
+    suffix: "0000"
+    final: false
 
-  Использование
+edges:
+  minCount: 6
+  side: "any" # any | prefix | suffix
+  final: false
 
-  Запуск
+regexp:
+  - pattern: "(?i)^0x([a-f0-9])\\1\\1\\1"
+    final: false
+  - pattern: "(?i)face.{0,30}beef"
+    final: true
+```
 
-  ./wallettools.exe
+`specific`, `symmetric` и `edges` проверяются по телу адреса без префикса `0x`. `regexp` проверяется по полному адресу с `0x`.
 
-  Появится интерактивное меню:
+## Использование
 
-  WalletTools — Vanity generator
-  1) Generate by Private Keys
-  2) Generate by Mnemonic
-  3) Encrypt raw → keystore
-  4) Decrypt keystore → raw
-  Press enter to exit
-  >
+Запуск:
 
-  1. Генерация по приватным ключам
+```bash
+./wallettools.exe
+```
 
-  Генерирует случайные приватные ключи и ищет адреса, соответствующие паттернам из configs/patterns.yaml.
+Меню:
 
-  Опции:
-  - Шифрование в keystore (с паролем и подсказкой)
-  - Сохранение в чистом виде (только адреса и приватные ключи)
+```text
+WalletTools - Vanity generator
+1) Generate by Private Keys
+2) Generate by Mnemonic
+3) Encrypt raw -> keystore
+4) Decrypt keystore -> raw
+Press enter to exit
+>
+```
 
-  Вывод:
-  - logs/private/<DATE>/private_<TIME>/app.log — журнал работы
-  - logs/private/<DATE>/private_<TIME>/<kind>.jsonl — найденные кошельки
-  - logs/private/<DATE>/private_<TIME>/hint.txt — подсказка к паролю (если указана)
+### 1. Generate by Private Keys
 
-  2. Генерация по мнемоникам
+Генерирует случайные приватные ключи и ищет адреса, подходящие под паттерны из `configs/patterns.yaml`.
 
-  Генерирует BIP-39 мнемоники и деривирует адреса по стандартному пути Ethereum.
+Можно выбрать:
 
-  Опции:
-  - BIP-39 passphrase (опционально, с подтверждением)
-  - Количество деривируемых адресов (по умолчанию 5)
+- сохранять найденные приватные ключи в plaintext;
+- шифровать найденные приватные ключи в keystore с паролем;
+- сохранить подсказку к паролю в `hint.txt`.
 
-  Вывод:
-  - logs/mnemonic/<DATE>/mnemonic_<TIME>/app.log                                                                                                                                                                                     
-  - logs/mnemonic/<DATE>/mnemonic_<TIME>/<kind>.txt — найденные мнемоники с адресами
-  - logs/mnemonic/<DATE>/mnemonic_<TIME>/hint.txt — подсказка к passphrase
+Вывод:
 
-  3. Шифрование (Encrypt raw → keystore)
+- `logs/private/<DATE>/private_<TIME>/app.log`
+- `logs/private/<DATE>/private_<TIME>/<kind>.jsonl`
+- `logs/private/<DATE>/private_keystore_<TIME>/<kind>.jsonl` при генерации с keystore
+- `logs/private/<DATE>/private_keystore_<TIME>/hint.txt` если указана подсказка
 
-  Читает приватные ключи из inputs/encrypt/privates.txt и шифрует их в keystore-файлы.
+### 2. Generate by Mnemonic
 
-  Формат inputs/encrypt/privates.txt:
-  0x1234567890abcdef...
-  0xabcdef1234567890...
-  # комментарии игнорируются
+Генерирует BIP-39 мнемоники, опционально использует passphrase и деривирует адреса по пути Ethereum:
 
-  Вывод:
-  - logs/encrypt/<DATE>/encrypt_<TIME>/all.jsonl — все keystore-файлы построчно
-  - logs/encrypt/<DATE>/encrypt_<TIME>/files/<address>.json — отдельные keystore-файлы
+```text
+m/44'/60'/0'/0/<index>
+```
 
-  4. Дешифрование (Decrypt keystore → raw)
+По умолчанию деривируется 5 адресов на одну мнемонику.
 
-  Извлекает приватные ключи из keystore-файлов в директории inputs/decrypt/.
+Вывод:
 
-  Поддерживаемые форматы:
-  - inputs/decrypt/all.jsonl — файл с построчными JSON
-  - inputs/decrypt/*.json — отдельные keystore-файлы
-  - inputs/decrypt/files/*.json — keystore-файлы в поддиректории
+- `logs/mnemonics/<DATE>/mnemonics_<TIME>/app.log`
+- `logs/mnemonics/<DATE>/mnemonics_<TIME>/<kind>.log`
+- `logs/mnemonics/<DATE>/mnemonics_<TIME>/hint.txt` если указана подсказка
 
-  Вывод:
-  - logs/decrypt/<DATE>/decrypt_<TIME>/all.txt — формат address:private_key                                                                                                                                                          
+### 3. Encrypt raw -> keystore
 
-  Структура проекта
+Читает приватные ключи из:
 
-  WalletTools/
-  ├── cmd/
-  │   └── wallettools/
-  │       └── main.go              # Точка входа
-  ├── configs/
-  │   ├── app.yaml                 # Конфигурация приложения
-  │   └── patterns.yaml            # Паттерны для поиска
-  ├── internal/
-  │   ├── cli/
-  │   │   └── runner.go            # Интерактивный CLI
-  │   ├── crypto/
-  │   │   └── evm.go               # Работа с ключами и адресами
-  │   ├── generator/
-  │   │   ├── engine.go            # Генерация с паттернами
-  │   │   └── options.go           # Опции генератора
-  │   ├── keystore/
-  │   │   └── sink.go              # Запись keystore-файлов
-  │   ├── logsink/
-  │   │   ├── fs.go                # Файловая система для логов
-  │   │   └── write.go             # Запись совпадений
-  │   ├── mnemonic/
-  │   │   └── bip39.go             # Работа с BIP-39
-  │   ├── ops/
-  │   │   └── encdec/
-  │   │       └── encdec.go        # Шифрование/дешифрование
-  │   └── patterns/
-  │       └── matcher.go           # Сопоставление с паттернами
-  ├── pkg/
-  │   ├── appcfg/
-  │   │   └── appcfg.go            # Загрузка app.yaml
-  │   ├── config/
-  │   │   └── patterns.go          # Загрузка patterns.yaml
-  │   ├── i18n/
-  │   │   └── i18n.go              # Интернационализация
-  │   └── logx/
-  │       ├── logx.go              # Логирование (zap)
-  │       └── masking_core.go      # Маскировка секретов
-  ├── inputs/                      # Входные данные (создается пользователем)
-  │   ├── encrypt/
-  │   │   └── privates.txt         # Приватные ключи для шифрования
-  │   └── decrypt/                 # Keystore-файлы для дешифрования
-  ├── logs/                        # Выходные данные (создается автоматически)
-  ├── go.mod
-  └── go.sum
+```text
+inputs/encrypt/privates.txt
+```
 
-  Безопасность
+Формат:
 
-  Рекомендации
+```text
+0x1234567890abcdef...
+0xabcdef1234567890...
+# комментарии игнорируются
+```
 
-  1. Пароли keystore: Используйте сложные пароли для защиты keystore-файлов
-  2. Скрытие секретов: Включите hide_secrets: true в configs/app.yaml для скрытия приватных ключей и паролей в консоли
-  3. Хранение логов: Логи с приватными ключами и мнемониками хранятся в директории logs/ — защитите эту директорию
-  4. Очистка памяти: Пароли в памяти перезаписываются нулями после использования (wipeBytes)
-  5. Ввод паролей: Все пароли вводятся в скрытом режиме (без отображения на экране)
+Вывод:
 
-  Особенности
+- `logs/encrypt/<DATE>/encrypt_<TIME>/app.log`
+- `logs/encrypt/<DATE>/encrypt_<TIME>/all.jsonl`
+- `logs/encrypt/<DATE>/encrypt_<TIME>/files/<address>.json`
+- `logs/encrypt/<DATE>/encrypt_<TIME>/hint.txt` если указана подсказка
 
-  - Приватные ключи в plaintext сохраняются только при явном отказе от шифрования
-  - Логи маскируют секретные данные при hide_secrets: true                                                                                                                                                                           
-  - Поддержка подсказок к паролям (hint.txt) для упрощения запоминания
+### 4. Decrypt keystore -> raw
 
-  Производительность
+Читает keystore-файлы из `inputs/decrypt/`.
 
-  - Многопоточность: Настраивается через параметр cores в configs/app.yaml                                                                                                                                                           
-  - Прогресс: Каждые 10 секунд выводится статистика (количество попыток, скорость генерации)
-  - Остановка: Нажмите Ctrl+C для корректного завершения работы
-  - Final паттерны: Генерация останавливается автоматически после нахождения паттерна с final: true                                                                                                                                  
+Поддерживаемые форматы:
 
-  Примеры паттернов
+- `inputs/decrypt/all.jsonl`
+- `inputs/decrypt/*.json`
+- `inputs/decrypt/files/*.json`
 
-  Префиксы и суффиксы
+Вывод:
 
-  specific:                                                                                                                                                                                                                          
-    - prefix: "dead"                                                                                                                                                                                                                 
-      suffix: "beef"                                                                                                                                                                                                                 
-      final: false                                                                                                                                                                                                                   
-  Найдет: 0xdead...beef                                                                                                                                                                                                              
+- `logs/decrypt/<DATE>/decrypt_<TIME>/app.log`
+- `logs/decrypt/<DATE>/decrypt_<TIME>/all.txt`
 
-  Симметричные адреса
+Формат `all.txt`:
 
-  symmetric:                                                                                                                                                                                                                         
-    - prefix: "1234"                                                                                                                                                                                                                 
-      suffix: "4321"                                                                                                                                                                                                                 
-      final: true                                                                                                                                                                                                                    
-  Найдет: 0x1234...4321                                                                                                                                                                                                              
+```text
+address:private_key
+```
 
-  Регулярные выражения
+## Паттерны
 
-  regexp:                                                                                                                                                                                                                            
-    - pattern: "(?i)^0x[a-f]{40}"  # только буквы, без цифр                                                                                                                                                                          
-      final: false                                                                                                                                                                                                                   
+### Specific
 
-  Повторяющиеся символы
+```yaml
+specific:
+  - prefix: "dead"
+    suffix: "beef"
+    final: false
+```
 
-  edges:                                                                                                                                                                                                                             
-    minCount: 4                                                                                                                                                                                                                      
-    side: "prefix"                                                                                                                                                                                                                   
-    final: false                                                                                                                                                                                                                     
-  Найдет: 0xaaaa..., 0x1111..., и т.д.
+Найдет адрес вида:
 
-  Зависимости
+```text
+0xdead...beef
+```
 
-  - github.com/ethereum/go-ethereum — криптография Ethereum
-  - github.com/miguelmota/go-ethereum-hdwallet — HD-кошельки
-  - github.com/tyler-smith/go-bip39 — BIP-39 мнемоники
-  - go.uber.org/zap — структурированное логирование
-  - golang.org/x/term — скрытый ввод паролей
-  - gopkg.in/yaml.v3 — парсинг YAML
+### Symmetric
 
-  Лицензия
+Можно использовать placeholder-паттерны `X` и `Y`:
 
-  См. LICENSE
+```yaml
+symmetric:
+  - prefix: "XX"
+    suffix: "YY"
+    final: true
+```
 
-  Поддержка
+Также поддерживаются literal hex-паттерны:
 
-  При возникновении проблем или вопросов создайте issue в репозитории проекта.
-  ```
+```yaml
+symmetric:
+  - prefix: "1234"
+    suffix: "4321"
+    final: true
+```
+
+### Edges
+
+```yaml
+edges:
+  minCount: 4
+  side: "prefix"
+  final: false
+```
+
+Найдет адреса вида:
+
+```text
+0xaaaa...
+0x1111...
+```
+
+### Regexp
+
+```yaml
+regexp:
+  - pattern: "(?i)^0x[a-f]{40}"
+    final: false
+```
+
+Регулярные выражения применяются к полному адресу, включая `0x`.
+
+## Безопасность
+
+- Ввод паролей и passphrase выполняется скрыто, без отображения введенных символов в консоли.
+- При `hide_secrets_in_console: true` приватные ключи, мнемоники, passphrase и пароли не должны отображаться в консольных логах.
+- Файловые логи и результаты могут содержать секреты. Не храните директорию `logs/` в публичных местах и не отправляйте ее третьим лицам.
+- На Unix-подобных системах файлы с секретами создаются с ограниченными правами доступа.
+- Подсказка к паролю (`hint.txt`) не должна содержать сам пароль или его очевидную часть.
+- Go не дает надежной гарантии полной очистки строк с секретами из памяти, поэтому не стоит рассматривать очистку памяти как основную защиту.
+
+## Структура проекта
+
+```text
+WalletTools/
+├── cmd/
+│   └── wallettools/
+│       └── main.go
+├── configs/
+│   ├── app.yaml
+│   └── patterns.yaml
+├── internal/
+│   ├── cli/
+│   ├── crypto/
+│   ├── generator/
+│   ├── keystore/
+│   ├── logsink/
+│   ├── mnemonic/
+│   ├── ops/
+│   │   └── encdec/
+│   └── patterns/
+├── inputs/
+│   ├── encrypt/
+│   └── decrypt/
+├── pkg/
+│   ├── appcfg/
+│   ├── config/
+│   ├── i18n/
+│   └── logx/
+├── go.mod
+└── go.sum
+```
+
+## Проверка проекта
+
+```bash
+go test ./...
+go vet ./...
+go build -buildvcs=false ./cmd/wallettools
+```
+
+## Зависимости
+
+- `github.com/ethereum/go-ethereum` - криптография Ethereum и keystore
+- `github.com/miguelmota/go-ethereum-hdwallet` - HD wallet деривация
+- `github.com/tyler-smith/go-bip39` - BIP-39 мнемоники
+- `go.uber.org/zap` - логирование
+- `golang.org/x/term` - скрытый ввод паролей
+- `gopkg.in/yaml.v3` - YAML-конфиги
+
+## Донат
+
+Если проект оказался полезен, можно поддержать разработку EVM-донатом:
+
+```text
+EVM: 0x22225b48937dAa55D28f26D26cD09bE5b6E12222
+```
+
+## Лицензия
+
+См. `LICENSE`.

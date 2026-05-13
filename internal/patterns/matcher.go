@@ -4,6 +4,7 @@ import (
 	"WalletTools/pkg/config"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 type MatchResult struct {
@@ -13,15 +14,17 @@ type MatchResult struct {
 }
 
 func MatchAddress(cfg *config.PatternsConfig, addr string) *MatchResult {
-	check := addr
+	full := strings.TrimSpace(addr)
+	body := strings.TrimPrefix(strings.TrimPrefix(full, "0x"), "0X")
 	if !cfg.CaseSensitive {
-		check = strings.ToLower(check)
+		full = strings.ToLower(full)
+		body = strings.ToLower(body)
 	}
 
 	// symmetric
 	if len(cfg.Symmetric) > 0 {
 		for i, p := range cfg.Symmetric {
-			if matchSymmetric(check, p.Prefix, p.Suffix) {
+			if matchSymmetric(body, p.Prefix, p.Suffix, cfg.CaseSensitive) {
 				return &MatchResult{Kind: "symmetric", Index: i, Final: p.Final}
 			}
 		}
@@ -35,7 +38,7 @@ func MatchAddress(cfg *config.PatternsConfig, addr string) *MatchResult {
 			pre = strings.ToLower(pre)
 			suf = strings.ToLower(suf)
 		}
-		if strings.HasPrefix(check, pre) && strings.HasSuffix(check, suf) {
+		if strings.HasPrefix(body, pre) && strings.HasSuffix(body, suf) {
 			return &MatchResult{Kind: "specific", Index: i, Final: p.Final}
 		}
 	}
@@ -43,13 +46,13 @@ func MatchAddress(cfg *config.PatternsConfig, addr string) *MatchResult {
 	// edges
 	if cfg.Edges.MinCount > 0 {
 		if cfg.Edges.Side == "prefix" || cfg.Edges.Side == "any" {
-			r := runLenPrefix(check)
+			r := runLenPrefix(body)
 			if r >= cfg.Edges.MinCount {
 				return &MatchResult{Kind: "edges", Index: 0, Final: cfg.Edges.Final}
 			}
 		}
 		if cfg.Edges.Side == "suffix" || cfg.Edges.Side == "any" {
-			r := runLenSuffix(check)
+			r := runLenSuffix(body)
 			if r >= cfg.Edges.MinCount {
 				return &MatchResult{Kind: "edges", Index: 0, Final: cfg.Edges.Final}
 			}
@@ -58,19 +61,32 @@ func MatchAddress(cfg *config.PatternsConfig, addr string) *MatchResult {
 
 	// regexp
 	for i, rp := range cfg.Regexp {
-		pat := rp.Pattern
-		if !cfg.CaseSensitive {
-			pat = "(?i)" + pat
-		}
-		re, err := regexp.Compile(pat)
+		re, err := compiledRegexp(rp.Pattern, cfg.CaseSensitive)
 		if err != nil {
 			continue
 		}
-		if re.MatchString(check) {
+		if re.MatchString(full) {
 			return &MatchResult{Kind: "regexp", Index: i, Final: rp.Final}
 		}
 	}
 	return nil
+}
+
+var regexpCache sync.Map
+
+func compiledRegexp(pattern string, caseSensitive bool) (*regexp.Regexp, error) {
+	if !caseSensitive {
+		pattern = "(?i)" + pattern
+	}
+	if re, ok := regexpCache.Load(pattern); ok {
+		return re.(*regexp.Regexp), nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+	actual, _ := regexpCache.LoadOrStore(pattern, re)
+	return actual.(*regexp.Regexp), nil
 }
 
 func runLenPrefix(s string) int {
@@ -105,7 +121,11 @@ func runLenSuffix(s string) int {
 	return n
 }
 
-func matchSymmetric(addr, pre, suf string) bool {
+func matchSymmetric(addr, pre, suf string, caseSensitive bool) bool {
+	if !caseSensitive {
+		pre = strings.ToLower(pre)
+		suf = strings.ToLower(suf)
+	}
 	if len(addr) < len(pre)+len(suf) {
 		return false
 	}
@@ -113,38 +133,41 @@ func matchSymmetric(addr, pre, suf string) bool {
 	prefixPart := addr[:len(pre)]
 	suffixPart := addr[len(addr)-len(suf):]
 
-	checkPattern := func(pattern, part string) (byte, bool) {
-		if len(pattern) != len(part) {
-			return 0, false
-		}
-		var symbol byte
-		for i := 0; i < len(pattern); i++ {
-			switch pattern[i] {
-			case 'X', 'Y':
-				if symbol == 0 {
-					symbol = part[i]
-				} else if part[i] != symbol {
-					return 0, false
-				}
-			default:
-				// Любой другой символ запрещён
-				return 0, false
-			}
-		}
-		return symbol, true
-	}
+	bindings := make(map[byte]byte, 2)
+	return matchPatternPart(pre, prefixPart, bindings) &&
+		matchPatternPart(suf, suffixPart, bindings)
+}
 
-	symPre, okPre := checkPattern(pre, prefixPart)
-	symSuf, okSuf := checkPattern(suf, suffixPart)
-	if !okPre || !okSuf {
+func matchPatternPart(pattern, part string, bindings map[byte]byte) bool {
+	if len(pattern) != len(part) {
 		return false
 	}
-
-	if strings.Contains(pre, "X") && strings.Contains(suf, "X") {
-		return symPre == symSuf
+	if !hasOnlyPlaceholders(pattern) {
+		return pattern == part
 	}
-	if strings.Contains(pre, "Y") && strings.Contains(suf, "Y") {
-		return symPre == symSuf
+	pattern = strings.ToUpper(pattern)
+	for i := 0; i < len(pattern); i++ {
+		placeholder := pattern[i]
+		if bound, ok := bindings[placeholder]; ok {
+			if part[i] != bound {
+				return false
+			}
+			continue
+		}
+		bindings[placeholder] = part[i]
+	}
+	return true
+}
+
+func hasOnlyPlaceholders(pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+	pattern = strings.ToUpper(pattern)
+	for i := 0; i < len(pattern); i++ {
+		if pattern[i] != 'X' && pattern[i] != 'Y' {
+			return false
+		}
 	}
 	return true
 }
