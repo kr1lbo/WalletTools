@@ -1,0 +1,52 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+      - run: go vet ./...
+      - name: Build standalone executable and archive
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: ./scripts/build-release.ps1 -Version $env:RELEASE_TAG
+      - name: Smoke test
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $exe = Join-Path $PWD "dist/$env:RELEASE_TAG/wallettools-windows-amd64.exe"
+          $version = & $exe --version
+          if ($LASTEXITCODE -ne 0 -or $version -ne "WalletTools $env:RELEASE_TAG") { throw 'Version check failed' }
+          $data = Join-Path $env:RUNNER_TEMP 'wallettools-smoke'
+          '' | & $exe --data-dir $data
+          if ($LASTEXITCODE -ne 0) { throw 'Startup failed' }
+          if (!(Test-Path "$data/configs/patterns.yaml")) { throw 'Missing default patterns' }
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $assets = @(
+            "dist/$env:RELEASE_TAG/wallettools-windows-amd64.exe",
+            "dist/$env:RELEASE_TAG/wallettools-windows-amd64.zip",
+            "dist/$env:RELEASE_TAG/checksums.txt"
+          )
+          gh release create $env:RELEASE_TAG @assets --verify-tag --title "WalletTools $env:RELEASE_TAG" --notes-file docs/release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

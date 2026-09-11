@@ -18,15 +18,33 @@ WalletTools - консольный инструмент для генераци�
 
 ## Установка
 
+### Готовая программа для Windows x64
+
+[Скачать последний релиз](https://github.com/kr1lbo/WalletTools/releases/latest) → **wallettools-windows-amd64.exe** в разделе Assets.
+
+Сохраните EXE в отдельную папку с правом записи и запустите двойным щелчком. Go и дополнительные библиотеки устанавливать не нужно. Также доступен ZIP с программой, README и лицензией.
+
+При первом запуске рядом с EXE создаются `configs/`, `inputs/encrypt/privates.txt`, `inputs/decrypt/` и `logs/`. Стартовый паттерн ищет префикс `beef` и останавливается после совпадения; измените `configs/patterns.yaml` под свои задачи. Ctrl+C останавливает генерацию и возвращает в меню, Enter в меню завершает программу.
+
+При обновлении заменяйте только EXE: существующие конфиги и данные не перезаписываются. Все относительные пути ниже отсчитываются от папки EXE, независимо от папки запуска. Для другой папки данных:
+
+```powershell
+.\wallettools-windows-amd64.exe --data-dir "D:\WalletToolsData"
+.\wallettools-windows-amd64.exe --version
+Get-FileHash .\wallettools-windows-amd64.exe -Algorithm SHA256
+```
+
+Сравните хеш с `checksums.txt` из того же релиза.
+
 ### Требования
 
-- Go 1.24.0 или выше
+- Для сборки из исходников: Go 1.24.0 или выше
 - Windows, Linux или macOS
 
 ### Сборка
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/kr1lbo/WalletTools.git
 cd WalletTools
 go mod download
 go build -o wallettools.exe ./cmd/wallettools
@@ -305,6 +323,21 @@ go test ./...
 go vet ./...
 go build -buildvcs=false ./cmd/wallettools
 ```
+
+При запуске через Go укажите папку проекта явно: `go run ./cmd/wallettools --data-dir .`.
+
+## Выпуск релизов
+
+CI проверяет тесты, `go vet` и сборку на Windows и Linux. Отправка тега `vMAJOR.MINOR.PATCH` запускает `.github/workflows/release.yml`: тесты, проверка кода, сборка Windows x64 без CGO, проверка запуска и публикация EXE, ZIP и SHA-256 в GitHub Releases.
+
+Перед выпуском обновите `docs/release-notes.md` и отправьте изменения в GitHub, затем создайте тег на нужном коммите:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Локальная сборка релиза в PowerShell: `./scripts/build-release.ps1 -Version v1.0.0`. Результаты находятся в `dist/v1.0.0/`. В архив включаются только EXE, README и LICENSE; стартовые конфиги встроены в программу из `internal/portable/defaults/`, пользовательские конфиги, ключи и логи не упаковываются.
 
 ## Зависимости
 
