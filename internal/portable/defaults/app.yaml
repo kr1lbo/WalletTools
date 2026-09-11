@@ -1,4 +1,4 @@
-# Interface language and logging
+# Language is reserved; the current CLI is in English.
 language: "ru"
 log_level: "info"
 hide_secrets_in_console: true

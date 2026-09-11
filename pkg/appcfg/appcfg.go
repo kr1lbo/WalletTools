@@ -35,9 +35,10 @@ func Load(path string) (*Config, error) {
 	}
 
 	c := Config{
-		Language: raw.Language,
-		LogLevel: raw.LogLevel,
-		Cores:    raw.Cores,
+		HideSecretsInConsole: true,
+		Language:             raw.Language,
+		LogLevel:             raw.LogLevel,
+		Cores:                raw.Cores,
 	}
 	if raw.HideSecretsInConsole != nil {
 		c.HideSecretsInConsole = *raw.HideSecretsInConsole

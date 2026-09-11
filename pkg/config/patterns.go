@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -69,8 +70,11 @@ func validate(c *PatternsConfig) error {
 	if c.Symbols == "" {
 		return errors.New("symbols must not be empty")
 	}
-	if c.Edges.MinCount < 0 {
-		return errors.New("edges.minCount must be >= 0")
+	if c.Edges.MinCount < 0 || c.Edges.MinCount > 40 {
+		return errors.New("edges.minCount must be between 0 and 40")
+	}
+	if c.Edges.Side == "" {
+		c.Edges.Side = "any"
 	}
 	if c.Edges.Side != "" {
 		switch c.Edges.Side {
@@ -81,11 +85,37 @@ func validate(c *PatternsConfig) error {
 	}
 
 	for i, sp := range c.Symmetric {
+		if len(sp.Prefix)+len(sp.Suffix) > 40 {
+			return fmt.Errorf("symmetric[%d] exceeds address length", i)
+		}
 		if err := validateSymmetricPart(sp.Prefix); err != nil {
 			return fmt.Errorf("symmetric[%d].prefix: %w", i, err)
 		}
 		if err := validateSymmetricPart(sp.Suffix); err != nil {
 			return fmt.Errorf("symmetric[%d].suffix: %w", i, err)
+		}
+	}
+	for i, sp := range c.Specific {
+		if sp.Prefix == "" && sp.Suffix == "" {
+			return fmt.Errorf("specific[%d] must have a prefix or suffix", i)
+		}
+		if len(sp.Prefix)+len(sp.Suffix) > 40 {
+			return fmt.Errorf("specific[%d] exceeds address length", i)
+		}
+		for _, part := range []string{sp.Prefix, sp.Suffix} {
+			for _, ch := range strings.ToUpper(part) {
+				if ch > 127 || !isHexAddressByte(byte(ch)) {
+					return fmt.Errorf("specific[%d] must contain only hex characters without 0x", i)
+				}
+			}
+		}
+	}
+	for i, rp := range c.Regexp {
+		if rp.Pattern == "" {
+			return fmt.Errorf("regexp[%d] must not be empty", i)
+		}
+		if _, err := regexp.Compile(rp.Pattern); err != nil {
+			return fmt.Errorf("regexp[%d]: %w", i, err)
 		}
 	}
 

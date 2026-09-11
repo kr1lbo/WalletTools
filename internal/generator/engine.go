@@ -43,8 +43,18 @@ type foundEvent struct {
 }
 
 func Run(ctx context.Context, opt Options) error {
+	return run(ctx, opt, func(dir string, ev foundEvent) error { return saveFoundEvent(dir, opt, ev) })
+}
+
+func run(ctx context.Context, opt Options, save func(string, foundEvent) error) error {
 	if opt.Source != SourcePrivKey && opt.Source != SourceMnemonic {
 		return fmt.Errorf("unknown source: %s", opt.Source)
+	}
+	if opt.Source == SourcePrivKey && opt.Encrypt && opt.KeystorePassword == "" {
+		return fmt.Errorf("keystore password must not be empty")
+	}
+	if opt.Source == SourceMnemonic && opt.WordsStrength != 0 && (opt.WordsStrength < 128 || opt.WordsStrength > 256 || opt.WordsStrength%32 != 0) {
+		return fmt.Errorf("mnemonic strength must be 128, 160, 192, 224 or 256")
 	}
 
 	cfg, err := config.Load(opt.PatternsPath)
@@ -60,12 +70,14 @@ func Run(ctx context.Context, opt Options) error {
 	if err != nil {
 		return err
 	}
-	_ = logsink.WriteHint(dir, opt.PassHint)
+	if err := logsink.WriteHint(dir, opt.PassHint); err != nil {
+		return fmt.Errorf("write hint: %w", err)
+	}
 
 	// app.log + консоль через logx
 	logPath := filepath.Join(dir, "app.log")
 	if err := logx.Init(logx.Config{
-		Level:                "info",
+		Level:                opt.LogLevel,
 		FilePath:             logPath,
 		ConsoleOnly:          false,
 		HideSecretsInConsole: opt.CaseMaskedOut,
@@ -83,7 +95,8 @@ func Run(ctx context.Context, opt Options) error {
 	} else if workers > maxCPU {
 		workers = maxCPU
 	}
-	runtime.GOMAXPROCS(workers)
+	previousProcs := runtime.GOMAXPROCS(workers)
+	defer runtime.GOMAXPROCS(previousProcs)
 
 	app.Infow("generation started",
 		"module", module,
@@ -105,27 +118,18 @@ func Run(ctx context.Context, opt Options) error {
 	var stoppedByFinal atomic.Bool
 
 	var finalOnce sync.Once
+	var writeErr error // Only the writer modifies this; read after writerDone.
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
 		for ev := range events {
-			switch {
-			case opt.Source == SourcePrivKey && opt.Encrypt:
-				if err := appendJSONL(dir, ev.Kind, ev.KsJSON); err != nil {
-					logx.S().Errorw("jsonl append failed", "addr", ev.Address, "kind", ev.Kind, "err", err)
-				}
-			case opt.Source == SourcePrivKey && !opt.Encrypt:
-				rec := logPriv{Address: ev.Address, PrivateKey: ev.PrivateHex}
-				b, _ := json.Marshal(rec)
-				if err := appendJSONL(dir, ev.Kind, b); err != nil {
-					logx.S().Errorw("jsonl append failed", "addr", ev.Address, "kind", ev.Kind, "err", err)
-				}
-			case opt.Source == SourceMnemonic:
-				line := fmt.Sprintf(
-					"address=%s index=%d path=%s mnemonic=%q passphrase=%q priv=%s",
-					ev.Address, ev.Index, ev.Path, ev.Mnemonic, ev.Pass, ev.PrivateHex,
-				)
-				_ = logsink.WriteMatch(dir, ev.Kind, line, false)
+			if writeErr != nil {
+				continue
+			}
+			writeErr = save(dir, ev)
+			if writeErr != nil {
+				cancel()
+				continue
 			}
 
 			if showSecrets {
@@ -214,12 +218,16 @@ func Run(ctx context.Context, opt Options) error {
 	wg.Wait()
 	close(events)
 	<-writerDone
+	cancel()
 	<-statusDone
 
 	logx.S().Infow("stopped",
 		"elapsed", humanDuration(time.Since(start)),
 		"attempts", atomic.LoadUint64(&attempts),
 	)
+	if writeErr != nil {
+		return fmt.Errorf("save match: %w", writeErr)
+	}
 	if stoppedByFinal.Load() {
 		return nil
 	}
@@ -353,6 +361,21 @@ func workerMnemonic(
 }
 
 // ------------------------------- helpers ------------------------------------
+
+func saveFoundEvent(dir string, opt Options, ev foundEvent) error {
+	if opt.Source == SourceMnemonic {
+		line := fmt.Sprintf("address=%s index=%d path=%s mnemonic=%q passphrase=%q priv=%s", ev.Address, ev.Index, ev.Path, ev.Mnemonic, ev.Pass, ev.PrivateHex)
+		return logsink.WriteMatch(dir, ev.Kind, line, false)
+	}
+	if opt.Encrypt {
+		return appendJSONL(dir, ev.Kind, ev.KsJSON)
+	}
+	blob, err := json.Marshal(logPriv{Address: ev.Address, PrivateKey: ev.PrivateHex})
+	if err != nil {
+		return err
+	}
+	return appendJSONL(dir, ev.Kind, blob)
+}
 
 func humanDuration(d time.Duration) string {
 	if d < time.Minute {

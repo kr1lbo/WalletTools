@@ -19,6 +19,7 @@ type Runner struct {
 	in                   *bufio.Reader
 	HideSecretsInConsole bool
 	Workers              int
+	LogLevel             string
 }
 
 func NewRunner() *Runner {
@@ -39,7 +40,8 @@ func readPassword(prompt string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(pw)), nil
+	defer wipeBytes(pw)
+	return string(pw), nil
 }
 
 // readPasswordWithConfirmOrSkip — hidden confirmation input.
@@ -147,6 +149,7 @@ func (r *Runner) handleGenPriv() {
 		PatternsPath:     "configs/patterns.yaml",
 		CaseMaskedOut:    r.HideSecretsInConsole,
 		Workers:          r.Workers,
+		LogLevel:         r.LogLevel,
 	}
 	ctx, stop := withInterrupt(context.Background())
 	defer stop()
@@ -210,6 +213,7 @@ func (r *Runner) handleGenMnemonic() {
 		PatternsPath:  "configs/patterns.yaml",
 		CaseMaskedOut: r.HideSecretsInConsole,
 		Workers:       r.Workers,
+		LogLevel:      r.LogLevel,
 	}
 
 	ctx, stop := withInterrupt(context.Background())
@@ -257,6 +261,7 @@ func (r *Runner) handleEncrypt() {
 			Password:             p,
 			PassHint:             hint,
 			HideSecretsInConsole: r.HideSecretsInConsole,
+			LogLevel:             r.LogLevel,
 		},
 	); err != nil {
 		fmt.Println("Encryption error:", err)
@@ -280,6 +285,7 @@ func (r *Runner) handleDecrypt() {
 			LogsBase:             "logs",
 			Password:             pwd,
 			HideSecretsInConsole: r.HideSecretsInConsole,
+			LogLevel:             r.LogLevel,
 		},
 	); err != nil {
 		fmt.Println("Decryption error:", err)

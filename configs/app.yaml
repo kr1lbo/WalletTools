@@ -1,4 +1,4 @@
-# Interface language: "ru" or "en"
+# Reserved setting; the current CLI is in English
 language: "ru"
 
 # Logger level: debug | info | warn | error
@@ -7,6 +7,6 @@ log_level: "info"
 hide_secrets_in_console: true
 
 # How many logical processors to use for generation.
-# MUST be less than the number of available logical CPUs on the computer.
+# Values above the available CPU count are clamped.
 # 0 or no value — use all available ones.
 cores: 8

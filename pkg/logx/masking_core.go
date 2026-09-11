@@ -42,6 +42,15 @@ func (m *maskingCore) With(fields []zapcore.Field) zapcore.Core {
 	}
 }
 
+// Check must register this wrapper, otherwise zap calls the embedded core's
+// Write directly and bypasses redaction of per-call fields and messages.
+func (m *maskingCore) Check(entry zapcore.Entry, checked *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	if m.Enabled(entry.Level) {
+		return checked.AddCore(entry, m)
+	}
+	return checked
+}
+
 func (m *maskingCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 	// mask message text
 	if m.maskPattern != nil && entry.Message != "" {

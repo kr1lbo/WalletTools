@@ -17,9 +17,14 @@ func MakeModuleDirs(base, module string, keystore bool) (string, error) {
 		name = module + "_keystore_" + timeDir
 	}
 
-	dir := filepath.Join(base, module, date, name)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("mkdir %q: %w", dir, err)
+	parent := filepath.Join(base, module, date)
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return "", fmt.Errorf("mkdir %q: %w", parent, err)
+	}
+	// MkdirTemp reserves a distinct directory even for simultaneous processes.
+	dir, err := os.MkdirTemp(parent, name+"_")
+	if err != nil {
+		return "", fmt.Errorf("create run directory: %w", err)
 	}
 	return dir, nil
 }

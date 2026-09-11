@@ -6,6 +6,7 @@ import (
 
 	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
 	bip39 "github.com/tyler-smith/go-bip39"
+	"golang.org/x/text/unicode/norm"
 )
 
 type Derived struct {
@@ -31,7 +32,7 @@ func Derive(mn, passphrase string, n int) ([]Derived, error) {
 	if n <= 0 {
 		n = 5
 	}
-	seed := bip39.NewSeed(mn, passphrase)
+	seed := bip39.NewSeed(norm.NFKD.String(mn), norm.NFKD.String(passphrase))
 	w, err := hdwallet.NewFromSeed(seed)
 	if err != nil {
 		return nil, err

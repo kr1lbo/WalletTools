@@ -22,6 +22,7 @@ import (
 
 // EncryptOptions controls encryption job behaviour.
 type EncryptOptions struct {
+	LogLevel             string
 	InputsBaseDir        string // e.g. "inputs"
 	LogsBase             string // e.g. "logs"
 	Password             string // required
@@ -31,6 +32,7 @@ type EncryptOptions struct {
 
 // DecryptOptions controls decryption job behaviour.
 type DecryptOptions struct {
+	LogLevel             string
 	InputsBaseDir        string // e.g. "inputs"
 	LogsBase             string // e.g. "logs"
 	Password             string // required
@@ -55,10 +57,12 @@ func EncryptPrivates(ctx context.Context, opt EncryptOptions) error {
 		return err
 	}
 	// optional hint for the operator
-	_ = logsink.WriteHint(dir, opt.PassHint)
+	if err := logsink.WriteHint(dir, opt.PassHint); err != nil {
+		return fmt.Errorf("write hint: %w", err)
+	}
 
 	logPath := filepath.Join(dir, "app.log")
-	if err := logx.Init(logx.Config{Level: "info", FilePath: logPath, ConsoleOnly: false, HideSecretsInConsole: opt.HideSecretsInConsole}); err != nil {
+	if err := logx.Init(logx.Config{Level: opt.LogLevel, FilePath: logPath, ConsoleOnly: false, HideSecretsInConsole: opt.HideSecretsInConsole}); err != nil {
 		return fmt.Errorf("logx init failed: %w", err)
 	}
 	defer logx.Close()
@@ -86,12 +90,11 @@ func EncryptPrivates(ctx context.Context, opt EncryptOptions) error {
 
 	for {
 		if ctx.Err() != nil {
-			break
+			return ctx.Err()
 		}
 		line, err := reader.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
-			app.Errorw("read line failed", "err", err)
-			break
+			return fmt.Errorf("read private keys: %w", err)
 		}
 		raw := strings.TrimSpace(line)
 		if raw == "" || strings.HasPrefix(raw, "#") {
@@ -102,7 +105,7 @@ func EncryptPrivates(ctx context.Context, opt EncryptOptions) error {
 		}
 		total++
 
-		hex := strings.TrimPrefix(raw, "0x")
+		hex := strings.TrimPrefix(strings.TrimPrefix(raw, "0x"), "0X")
 		priv, perr := gethcrypto.HexToECDSA(hex)
 		if perr != nil {
 			failCnt++
@@ -155,7 +158,7 @@ func EncryptPrivates(ctx context.Context, opt EncryptOptions) error {
 	}
 
 	app.Infow("encrypt finished", "total", total, "ok", okCnt, "failed", failCnt, "elapsed", time.Since(start).String())
-	return nil
+	return operationResult(ctx, total, okCnt, failCnt)
 }
 
 // DecryptKeystores reads inputs/decrypt/{all.jsonl, *.json, files/*.json}
@@ -172,7 +175,7 @@ func DecryptKeystores(ctx context.Context, opt DecryptOptions) error {
 		return err
 	}
 	logPath := filepath.Join(dir, "app.log")
-	if err := logx.Init(logx.Config{Level: "info", FilePath: logPath, ConsoleOnly: false, HideSecretsInConsole: opt.HideSecretsInConsole}); err != nil {
+	if err := logx.Init(logx.Config{Level: opt.LogLevel, FilePath: logPath, ConsoleOnly: false, HideSecretsInConsole: opt.HideSecretsInConsole}); err != nil {
 		return fmt.Errorf("logx init failed: %w", err)
 	}
 	defer logx.Close()
@@ -190,7 +193,7 @@ func DecryptKeystores(ctx context.Context, opt DecryptOptions) error {
 	files := collectInputFiles(inDir)
 	if len(files) == 0 {
 		app.Warnw("no keystore files found", "dir", inDir)
-		return nil
+		return errors.New("no keystore files found in inputs/decrypt")
 	}
 
 	app.Infow("decrypt started", "inputs", inDir, "out", dir, "files", len(files))
@@ -213,11 +216,17 @@ func DecryptKeystores(ctx context.Context, opt DecryptOptions) error {
 		if strings.HasSuffix(p, ".jsonl") {
 			f, err := os.Open(p)
 			if err != nil {
+				failCnt++
 				app.Errorw("open jsonl failed", "file", p, "err", err)
 				continue
 			}
 			sc := bufio.NewScanner(f)
+			sc.Buffer(make([]byte, 4096), 4*1024*1024)
 			for sc.Scan() {
+				if ctx.Err() != nil {
+					_ = f.Close()
+					return ctx.Err()
+				}
 				line := strings.TrimSpace(sc.Text())
 				if line == "" {
 					continue
@@ -244,6 +253,7 @@ func DecryptKeystores(ctx context.Context, opt DecryptOptions) error {
 			}
 			_ = f.Close()
 			if err := sc.Err(); err != nil {
+				failCnt++
 				app.Errorw("scan jsonl failed", "file", p, "err", err)
 			}
 			continue
@@ -251,6 +261,7 @@ func DecryptKeystores(ctx context.Context, opt DecryptOptions) error {
 
 		blob, err := os.ReadFile(p)
 		if err != nil {
+			failCnt++
 			app.Errorw("read json failed", "file", p, "err", err)
 			continue
 		}
@@ -276,15 +287,27 @@ func DecryptKeystores(ctx context.Context, opt DecryptOptions) error {
 	}
 
 	app.Infow("decrypt finished", "total", total, "ok", okCnt, "failed", failCnt, "elapsed", time.Since(start).String())
+	if err := outF.Close(); err != nil {
+		return fmt.Errorf("close decrypted output: %w", err)
+	}
+	return operationResult(ctx, total, okCnt, failCnt)
+}
+
+func operationResult(ctx context.Context, total, ok, failed int) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if failed > 0 {
+		return fmt.Errorf("operation incomplete: %d succeeded, %d failed; see app.log", ok, failed)
+	}
+	if total == 0 {
+		return errors.New("no input records found")
+	}
 	return nil
 }
 
 func collectInputFiles(inDir string) []string {
 	var files []string
-	allJSONL := filepath.Join(inDir, "all.jsonl")
-	if st, err := os.Stat(allJSONL); err == nil && !st.IsDir() {
-		files = append(files, allJSONL)
-	}
 	entries, _ := os.ReadDir(inDir)
 	for _, de := range entries {
 		if de.IsDir() {
@@ -300,7 +323,7 @@ func collectInputFiles(inDir string) []string {
 			}
 			continue
 		}
-		if strings.HasSuffix(de.Name(), ".json") {
+		if strings.HasSuffix(de.Name(), ".json") || strings.HasSuffix(de.Name(), ".jsonl") {
 			files = append(files, filepath.Join(inDir, de.Name()))
 		}
 	}
@@ -308,6 +331,13 @@ func collectInputFiles(inDir string) []string {
 }
 
 func decryptOne(blob []byte, password string) (addr string, privHex string, err error) {
+	// The upstream decoder assumes some KDF fields have valid JSON types.
+	// A malformed input file must not terminate the entire batch.
+	defer func() {
+		if recover() != nil {
+			addr, privHex, err = "", "", errors.New("malformed keystore parameters")
+		}
+	}()
 	blob = []byte(strings.TrimSpace(string(blob)))
 	// Validate JSON ahead of DecryptKey to return clearer error on garbage input.
 	var js map[string]any
@@ -315,20 +345,12 @@ func decryptOne(blob []byte, password string) (addr string, privHex string, err 
 		return "", "", fmt.Errorf("invalid keystore json: %w", err)
 	}
 
+	// Geth derives the address from the decrypted key and ignores address metadata.
 	key, err := gethks.DecryptKey(blob, password)
-	if err != nil {
-		// If the address has an unexpected format for some libs, try stripping 0x and retry once.
-		if fixed, ferr := forceAddressPrefix(blob, false); ferr == nil {
-			if key2, err2 := gethks.DecryptKey(fixed, password); err2 == nil {
-				key = key2
-				err = nil
-			}
-		}
-	}
 	if err != nil {
 		return "", "", err
 	}
-	addr = key.Address.Hex() // keep 0x prefix
+	addr = gethcrypto.PubkeyToAddress(key.PrivateKey.PublicKey).Hex()
 	privHex = "0x" + fmt.Sprintf("%x", gethcrypto.FromECDSA(key.PrivateKey))
 	return addr, privHex, nil
 }

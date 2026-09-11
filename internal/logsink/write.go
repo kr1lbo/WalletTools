@@ -2,11 +2,12 @@ package logsink
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 )
 
-func WriteMatch(dir, kind string, payload interface{}, asJSON bool) error {
+func WriteMatch(dir, kind string, payload interface{}, asJSON bool) (err error) {
 	var fname string
 	switch kind {
 	case "symmetric", "specific", "edges", "regexp":
@@ -25,7 +26,7 @@ func WriteMatch(dir, kind string, payload interface{}, asJSON bool) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { err = errors.Join(err, f.Close()) }()
 
 	if asJSON {
 		b, err := json.Marshal(payload)

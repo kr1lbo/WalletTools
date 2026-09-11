@@ -37,3 +37,22 @@ func TestMaskingCoreWithKeepsFieldRedaction(t *testing.T) {
 		t.Fatalf("expected private_key to be redacted, got %#v", got)
 	}
 }
+
+func TestMaskingCoreRedactsNormalLoggerCalls(t *testing.T) {
+	core, observed := observer.New(zapcore.InfoLevel)
+	masked := &maskingCore{Core: core, sensitive: defaultSensitiveKeys(), maskPattern: defaultMaskPattern(), replaceValue: "[REDACTED]"}
+	secret := "0x" + strings.Repeat("a", 64)
+	logger := zap.New(masked)
+	logger.Info("private="+secret, zap.String("private_key", secret))
+	logger.Sugar().Infow("found", "mnemonic", "test mnemonic", "password", "test password")
+	entries := observed.All()
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries", len(entries))
+	}
+	if strings.Contains(entries[0].Message, secret) || entries[0].ContextMap()["private_key"] != "[REDACTED]" {
+		t.Fatal("normal logger call bypassed masking")
+	}
+	if entries[1].ContextMap()["mnemonic"] != "[REDACTED]" || entries[1].ContextMap()["password"] != "[REDACTED]" {
+		t.Fatal("sugared logger call bypassed masking")
+	}
+}

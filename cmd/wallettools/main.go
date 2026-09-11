@@ -80,5 +80,6 @@ func main() {
 	r := cli.NewRunner()
 	r.HideSecretsInConsole = appConf.HideSecretsInConsole
 	r.Workers = workers
+	r.LogLevel = appConf.LogLevel
 	r.Run()
 }

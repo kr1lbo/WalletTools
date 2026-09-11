@@ -21,5 +21,6 @@ type Options struct {
 	PatternsPath  string // configs/patterns.yaml
 	CaseMaskedOut bool   // console masking (handled by logx/masking_core)
 
-	Workers int
+	Workers  int
+	LogLevel string
 }
