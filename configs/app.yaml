@@ -11,7 +11,9 @@ hide_secrets_in_console: true
 # 0 or no value — use all available ones.
 cores: 16
 
-# Use the optional NVIDIA CUDA helper for private-key generation only.
+# Full NVIDIA CUDA search for private-key generation only.
+# The release EXE contains the helper; the default name uses the embedded copy
+# when no external wallettools-cuda.exe exists next to the program.
 # Mnemonic generation always uses the CPU.
 gpu_enabled: true
 cuda_executable: "wallettools-cuda.exe"
