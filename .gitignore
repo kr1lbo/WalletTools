@@ -29,3 +29,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Runtime input containing user keystores
+inputs/decrypt/
