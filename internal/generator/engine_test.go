@@ -78,3 +78,18 @@ func TestFailedSaveStopsGenerationAndReturnsError(t *testing.T) {
 		}
 	}
 }
+
+func TestGPUGenerationReportsMissingHelper(t *testing.T) {
+	base := t.TempDir()
+	path := filepath.Join(base, "patterns.yaml")
+	if err := os.WriteFile(path, []byte("symbols: ABCDEF0123456789\nspecific:\n  - prefix: '00'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := Run(context.Background(), Options{
+		Source: SourcePrivKey, PatternsPath: path, LogsBase: base, Workers: 1,
+		GPUEnabled: true, CUDAExecutable: filepath.Join(base, "missing-cuda-helper"), CUDABatchSize: 256,
+	})
+	if err == nil || !strings.Contains(err.Error(), "start CUDA worker") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

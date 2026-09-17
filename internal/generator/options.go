@@ -21,6 +21,10 @@ type Options struct {
 	PatternsPath  string // configs/patterns.yaml
 	CaseMaskedOut bool   // console masking (handled by logx/masking_core)
 
-	Workers  int
-	LogLevel string
+	Workers        int
+	LogLevel       string
+	GPUEnabled     bool
+	CUDAExecutable string
+	CUDADevice     int
+	CUDABatchSize  int
 }

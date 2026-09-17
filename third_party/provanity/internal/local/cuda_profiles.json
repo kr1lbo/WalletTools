@@ -1,0 +1,112 @@
+[
+  {
+    "name": "NVIDIA GeForce RTX 5090",
+    "compute_major": 12,
+    "compute_minor": 0,
+    "min_multiprocessors": 170,
+    "max_multiprocessors": 170,
+    "min_global_mem": 32212254720,
+    "max_global_mem": 36507222016,
+    "batch_multiple": 983040,
+    "work_size": 256
+  },
+  {
+    "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "compute_major": 12,
+    "compute_minor": 0,
+    "min_multiprocessors": 188,
+    "max_multiprocessors": 188,
+    "min_global_mem": 96636764160,
+    "max_global_mem": 107374182400,
+    "batch_multiple": 983040,
+    "work_size": 128
+  },
+  {
+    "name": "NVIDIA GeForce RTX 4090",
+    "compute_major": 8,
+    "compute_minor": 9,
+    "min_multiprocessors": 128,
+    "max_multiprocessors": 128,
+    "min_global_mem": 24696061952,
+    "max_global_mem": 26843545600,
+    "batch_multiple": 245760,
+    "work_size": 128
+  },
+  {
+    "name": "NVIDIA GeForce RTX 4070 Ti SUPER",
+    "compute_major": 8,
+    "compute_minor": 9,
+    "min_multiprocessors": 66,
+    "max_multiprocessors": 66,
+    "min_global_mem": 15032385536,
+    "max_global_mem": 18253611008,
+    "batch_multiple": 245760,
+    "work_size": 128
+  },
+  {
+    "name": "NVIDIA GeForce RTX 3090",
+    "compute_major": 8,
+    "compute_minor": 6,
+    "min_multiprocessors": 82,
+    "max_multiprocessors": 82,
+    "min_global_mem": 24696061952,
+    "max_global_mem": 26843545600,
+    "batch_multiple": 131072,
+    "work_size": 128
+  },
+  {
+    "name": "NVIDIA GeForce RTX 3080",
+    "compute_major": 8,
+    "compute_minor": 6,
+    "min_multiprocessors": 68,
+    "max_multiprocessors": 68,
+    "min_global_mem": 8589934592,
+    "max_global_mem": 11811160064,
+    "batch_multiple": 229376,
+    "work_size": 128
+  },
+  {
+    "name": "NVIDIA GeForce RTX 3060 Ti",
+    "compute_major": 8,
+    "compute_minor": 6,
+    "min_multiprocessors": 38,
+    "max_multiprocessors": 38,
+    "min_global_mem": 7516192768,
+    "max_global_mem": 9663676416,
+    "batch_multiple": 172032,
+    "work_size": 256
+  },
+  {
+    "name": "NVIDIA GeForce RTX 3060",
+    "compute_major": 8,
+    "compute_minor": 6,
+    "min_multiprocessors": 28,
+    "max_multiprocessors": 28,
+    "min_global_mem": 10737418240,
+    "max_global_mem": 13958643712,
+    "batch_multiple": 65536,
+    "work_size": 128
+  },
+  {
+    "name": "NVIDIA GeForce RTX 2080 Ti",
+    "compute_major": 7,
+    "compute_minor": 5,
+    "min_multiprocessors": 68,
+    "max_multiprocessors": 68,
+    "min_global_mem": 10737418240,
+    "max_global_mem": 12884901888,
+    "batch_multiple": 131072,
+    "work_size": 128
+  },
+  {
+    "name": "NVIDIA GeForce GTX 1660 SUPER",
+    "compute_major": 7,
+    "compute_minor": 5,
+    "min_multiprocessors": 22,
+    "max_multiprocessors": 22,
+    "min_global_mem": 5368709120,
+    "max_global_mem": 7516192768,
+    "batch_multiple": 65536,
+    "work_size": 128
+  }
+]

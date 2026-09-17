@@ -5,6 +5,7 @@ import (
 	"WalletTools/internal/logsink"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -104,6 +105,7 @@ func run(ctx context.Context, opt Options, save func(string, foundEvent) error) 
 		"patterns", opt.PatternsPath,
 		"workers", workers,
 		"GOMAXPROCS", workers,
+		"gpu_enabled", opt.GPUEnabled && opt.Source == SourcePrivKey,
 	)
 
 	start := time.Now()
@@ -197,16 +199,27 @@ func run(ctx context.Context, opt Options, save func(string, foundEvent) error) 
 	}()
 
 	var wg sync.WaitGroup
-	wg.Add(workers)
+	var gpuDone chan error
 	switch opt.Source {
 	case SourcePrivKey:
-		for i := 0; i < workers; i++ {
+		if opt.GPUEnabled {
+			wg.Add(1)
+			gpuDone = make(chan error, 1)
 			go func() {
 				defer wg.Done()
-				workerPriv(ctx, cfg, opt.Encrypt, opt.KeystorePassword, start, &attempts, events)
+				gpuDone <- workerGPUFull(ctx, opt, cfg, start, &attempts, events)
 			}()
+		} else {
+			wg.Add(workers)
+			for i := 0; i < workers; i++ {
+				go func() {
+					defer wg.Done()
+					workerPriv(ctx, cfg, opt.Encrypt, opt.KeystorePassword, start, &attempts, events)
+				}()
+			}
 		}
 	case SourceMnemonic:
+		wg.Add(workers)
 		for i := 0; i < workers; i++ {
 			go func() {
 				defer wg.Done()
@@ -216,6 +229,10 @@ func run(ctx context.Context, opt Options, save func(string, foundEvent) error) 
 	}
 
 	wg.Wait()
+	var gpuErr error
+	if gpuDone != nil {
+		gpuErr = <-gpuDone
+	}
 	close(events)
 	<-writerDone
 	cancel()
@@ -230,6 +247,9 @@ func run(ctx context.Context, opt Options, save func(string, foundEvent) error) 
 	}
 	if stoppedByFinal.Load() {
 		return nil
+	}
+	if gpuErr != nil && !errors.Is(gpuErr, context.Canceled) {
+		return gpuErr
 	}
 	return ctx.Err()
 }
@@ -288,6 +308,55 @@ func workerPriv(
 		case <-ctx.Done():
 			return
 		case out <- ev:
+		}
+	}
+}
+
+func workerGPU(
+	ctx context.Context,
+	keys <-chan [32]byte,
+	cfg *config.PatternsConfig,
+	encrypt bool,
+	ksPwd string,
+	start time.Time,
+	attempts *uint64,
+	out chan<- foundEvent,
+) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case raw, ok := <-keys:
+			if !ok {
+				return
+			}
+			n := atomic.AddUint64(attempts, 1)
+			priv, err := crypto.PrivKeyFromBytes(raw[:])
+			if err != nil { // zero or >= secp256k1 order; discard safely
+				continue
+			}
+			addr := crypto.AddressHex(priv)
+			mr := patterns.MatchAddress(cfg, addr)
+			if mr == nil {
+				continue
+			}
+
+			ev := foundEvent{Kind: mr.Kind, Address: addr, Elapsed: time.Since(start), Attempt: n, Final: mr.Final}
+			if encrypt {
+				blob, err := crypto.KeystoreJSON(priv, ksPwd)
+				if err != nil {
+					logx.S().Errorw("keystore encrypt failed", "addr", addr, "err", err)
+					continue
+				}
+				ev.KsJSON = blob
+			} else {
+				ev.PrivateHex = crypto.PrivToHex(priv)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case out <- ev:
+			}
 		}
 	}
 }

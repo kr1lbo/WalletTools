@@ -4,3 +4,9 @@ log_level: "info"
 hide_secrets_in_console: true
 # 0 uses all available logical processors.
 cores: 0
+
+# NVIDIA CUDA is used only by "Generate by Private Keys".
+gpu_enabled: false
+cuda_executable: "wallettools-cuda.exe"
+cuda_device: 0
+cuda_batch_size: 65536

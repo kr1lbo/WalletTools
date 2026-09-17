@@ -3,6 +3,7 @@ bin/
 build/
 dist/
 *.exe
+!internal/cudagen/assets/wallettools-cuda.exe
 *.exe~
 *.dll
 *.so
@@ -14,6 +15,7 @@ dist/
 # Go coverage
 *.out
 .gocache/
+.codex-gocache*/
 
 # IDE/Editor settings
 .vscode/

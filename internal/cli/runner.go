@@ -20,6 +20,10 @@ type Runner struct {
 	HideSecretsInConsole bool
 	Workers              int
 	LogLevel             string
+	GPUEnabled           bool
+	CUDAExecutable       string
+	CUDADevice           int
+	CUDABatchSize        int
 }
 
 func NewRunner() *Runner {
@@ -150,6 +154,10 @@ func (r *Runner) handleGenPriv() {
 		CaseMaskedOut:    r.HideSecretsInConsole,
 		Workers:          r.Workers,
 		LogLevel:         r.LogLevel,
+		GPUEnabled:       r.GPUEnabled,
+		CUDAExecutable:   r.CUDAExecutable,
+		CUDADevice:       r.CUDADevice,
+		CUDABatchSize:    r.CUDABatchSize,
 	}
 	ctx, stop := withInterrupt(context.Background())
 	defer stop()

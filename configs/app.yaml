@@ -1,4 +1,4 @@
-# Reserved setting; the current CLI is in English
+# Interface language: "ru" or "en"
 language: "ru"
 
 # Logger level: debug | info | warn | error
@@ -7,6 +7,13 @@ log_level: "info"
 hide_secrets_in_console: true
 
 # How many logical processors to use for generation.
-# Values above the available CPU count are clamped.
+# MUST be less than the number of available logical CPUs on the computer.
 # 0 or no value — use all available ones.
-cores: 8
+cores: 16
+
+# Use the optional NVIDIA CUDA helper for private-key generation only.
+# Mnemonic generation always uses the CPU.
+gpu_enabled: true
+cuda_executable: "wallettools-cuda.exe"
+cuda_device: 0
+cuda_batch_size: 65536

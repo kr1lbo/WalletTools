@@ -12,6 +12,10 @@ func NewPrivKey() (*ecdsa.PrivateKey, error) {
 	return gethcrypto.GenerateKey()
 }
 
+func PrivKeyFromBytes(raw []byte) (*ecdsa.PrivateKey, error) {
+	return gethcrypto.ToECDSA(raw)
+}
+
 func PrivToHex(priv *ecdsa.PrivateKey) string {
 	return "0x" + fmt.Sprintf("%x", gethcrypto.FromECDSA(priv))
 }

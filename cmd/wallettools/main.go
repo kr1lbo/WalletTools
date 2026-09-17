@@ -81,5 +81,9 @@ func main() {
 	r.HideSecretsInConsole = appConf.HideSecretsInConsole
 	r.Workers = workers
 	r.LogLevel = appConf.LogLevel
+	r.GPUEnabled = appConf.GPUEnabled
+	r.CUDAExecutable = appConf.CUDAExecutable
+	r.CUDADevice = appConf.CUDADevice
+	r.CUDABatchSize = appConf.CUDABatchSize
 	r.Run()
 }

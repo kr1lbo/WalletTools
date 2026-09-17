@@ -12,6 +12,10 @@ type Config struct {
 	LogLevel             string `yaml:"log_level"` // "debug"|"info"|"warn"|"error"
 	HideSecretsInConsole bool   `yaml:"hide_secrets_in_console"`
 	Cores                int    `yaml:"cores"`
+	GPUEnabled           bool   `yaml:"gpu_enabled"`
+	CUDAExecutable       string `yaml:"cuda_executable"`
+	CUDADevice           int    `yaml:"cuda_device"`
+	CUDABatchSize        int    `yaml:"cuda_batch_size"`
 }
 
 type rawConfig struct {
@@ -20,6 +24,10 @@ type rawConfig struct {
 	HideSecretsInConsole *bool  `yaml:"hide_secrets_in_console"`
 	LegacyHideSecrets    *bool  `yaml:"hide_secrets"`
 	Cores                int    `yaml:"cores"`
+	GPUEnabled           bool   `yaml:"gpu_enabled"`
+	CUDAExecutable       string `yaml:"cuda_executable"`
+	CUDADevice           int    `yaml:"cuda_device"`
+	CUDABatchSize        int    `yaml:"cuda_batch_size"`
 }
 
 func Load(path string) (*Config, error) {
@@ -39,6 +47,10 @@ func Load(path string) (*Config, error) {
 		Language:             raw.Language,
 		LogLevel:             raw.LogLevel,
 		Cores:                raw.Cores,
+		GPUEnabled:           raw.GPUEnabled,
+		CUDAExecutable:       raw.CUDAExecutable,
+		CUDADevice:           raw.CUDADevice,
+		CUDABatchSize:        raw.CUDABatchSize,
 	}
 	if raw.HideSecretsInConsole != nil {
 		c.HideSecretsInConsole = *raw.HideSecretsInConsole
@@ -52,6 +64,12 @@ func Load(path string) (*Config, error) {
 	}
 	if c.LogLevel == "" {
 		c.LogLevel = "info"
+	}
+	if c.CUDAExecutable == "" {
+		c.CUDAExecutable = "wallettools-cuda.exe"
+	}
+	if c.CUDABatchSize <= 0 {
+		c.CUDABatchSize = 65536
 	}
 	return &c, nil
 }

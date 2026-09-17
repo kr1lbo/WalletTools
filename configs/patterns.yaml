@@ -3,28 +3,26 @@ symbols: "A B C D E F 0 1 2 3 4 5 6 7 8 9"
 case_sensitive: false
 
 symmetric:
-  - prefix: "XX"
-    suffix: "YY"
+  - prefix: "XXXX"
+    suffix: "XXXX"
+    final: false
+  - prefix: "XXXXXX"
+    suffix: "XXXXXX"
     final: true
+  - prefix: "XXXXX"
+    suffix: "XXXXX"
+    final: false
 
 specific:
-  - prefix: "beef"
-    suffix: ""
-    final: false
-  - prefix: "0000"
-    suffix: ""
-    final: false
   - prefix: "0000"
     suffix: "0000"
     final: false
 
 edges:
-  minCount: 6
+  minCount: 10
   side: "any"  # any | prefix | suffix
   final: false
 
 regexp:
-  - pattern: "(?i)^0x(?:0{4}|1{4}|2{4}|3{4}|4{4}|5{4}|6{4}|7{4}|8{4}|9{4}|a{4}|b{4}|c{4}|d{4}|e{4}|f{4})"
+  - pattern: "^0x[0-9]{4,6}.*[a-f]{4,6}$"
     final: false
-  - pattern: "(?i)face.{0,30}beef"
-    final: true

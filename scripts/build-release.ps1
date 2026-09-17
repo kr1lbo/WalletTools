@@ -19,7 +19,8 @@ try {
     go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$Version" -o $exe ./cmd/wallettools
     if ($LASTEXITCODE -ne 0) { throw 'Go build failed' }
     $zip = Join-Path $outDir 'wallettools-windows-amd64.zip'
-    Compress-Archive -LiteralPath $exe, (Join-Path $repoDir 'README.md'), (Join-Path $repoDir 'LICENSE') -DestinationPath $zip -Force
+    $archiveFiles = @($exe, (Join-Path $repoDir 'README.md'), (Join-Path $repoDir 'LICENSE'), (Join-Path $repoDir 'THIRD_PARTY_NOTICES.md'))
+    Compress-Archive -LiteralPath $archiveFiles -DestinationPath $zip -Force
     $checksums = foreach ($file in @($exe, $zip)) {
         $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $(Split-Path $file -Leaf)"
